@@ -34,7 +34,7 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 if __name__ == "__main__":
     # Replace 'YOUR_BOT_TOKEN' with your real Telegram bot token
-    TOKEN = "YOUR_BOT_TOKEN"
+    TOKEN = "8128076326:AAHkSTU4ymvUh8epIHDScylTaS9arW-knQM"
 
     app = ApplicationBuilder().token(TOKEN).build()
 
@@ -45,3 +45,4 @@ if __name__ == "__main__":
 
     print("🚀 Bot is starting...")
     app.run_polling()
+
