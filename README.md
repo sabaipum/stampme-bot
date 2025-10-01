@@ -1,0 +1,2 @@
+# stampme-bot
+Stamp Me
