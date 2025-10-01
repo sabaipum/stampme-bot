@@ -1,32 +1,47 @@
-import os
-from telegram.ext import Updater, CommandHandler
+# stampme_mini.py
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# Get token from environment (Render Dashboard → Environment → add key BOT_TOKEN)
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+# ---- Handlers ----
 
-def start(update, context):
-    update.message.reply_text("Welcome to StampMe Mini! 🎉 Use /newcampaign to begin.")
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handler for /start command
+    """
+    await update.message.reply_text(
+        "👋 Hello! Welcome to StampMe Bot.\n"
+        "Use /help to see available commands."
+    )
 
-def newcampaign(update, context):
-    update.message.reply_text("📌 New campaign created! Share this QR/link with your customers.")
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handler for /help command
+    """
+    await update.message.reply_text(
+        "Available commands:\n"
+        "/start - Welcome message\n"
+        "/help - List commands\n"
+        "/ping - Test bot"
+    )
 
-def stamp(update, context):
-    update.message.reply_text("✅ 1 stamp added!")
+async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handler for /ping command
+    """
+    await update.message.reply_text("Pong! 🏓")
 
-def wallet(update, context):
-    update.message.reply_text("💳 You have X stamps (demo).")
-
-def main():
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
-
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("newcampaign", newcampaign))
-    dp.add_handler(CommandHandler("stamp", stamp))
-    dp.add_handler(CommandHandler("wallet", wallet))
-
-    updater.start_polling()
-    updater.idle()
+# ---- Main ----
 
 if __name__ == "__main__":
-    main()
+    # Replace 'YOUR_BOT_TOKEN' with your real Telegram bot token
+    TOKEN = "YOUR_BOT_TOKEN"
+
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    # Register handlers
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("ping", ping))
+
+    print("🚀 Bot is starting...")
+    app.run_polling()
