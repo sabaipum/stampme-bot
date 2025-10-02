@@ -1,24 +1,27 @@
-# stampme_mini.py
 import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-TOKEN = os.getenv(8128076326:AAHkSTU4ymvUh8epIHDScylTaS9arW-knQM)  # make sure BOT_TOKEN is set in Render
+# Get the bot token from environment variable
+TOKEN = os.getenv(8128076326:AAHkSTU4ymvUh8epIHDScylTaS9arW-knQM)
 
+if not TOKEN:
+    raise ValueError("BOT_TOKEN environment variable not set!")
+
+# Example command handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Hello 👋 I’m your StampMe bot!")
-
-async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Available commands:\n/start - Say hi\n/help - Show this help")
+    await update.message.reply_text("Hello! I am your StampMe Mini Bot 🤖")
 
 def main():
+    # Build the application
     app = ApplicationBuilder().token(TOKEN).build()
 
+    # Add handlers
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_cmd))
 
-    app.run_polling()   # ✅ replaces Updater
+    # Run the bot
+    print("Bot is running...")
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
-
