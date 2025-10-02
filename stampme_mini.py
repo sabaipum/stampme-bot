@@ -19,7 +19,7 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---- Main ----
 if __name__ == "__main__":
-    TOKEN = "YOUR_BOT_TOKEN"
+    TOKEN = "8128076326:AAHkSTU4ymvUh8epIHDScylTaS9arW-knQM"
 
     # No Updater! Just use ApplicationBuilder
     app = ApplicationBuilder().token(TOKEN).build()
@@ -31,3 +31,4 @@ if __name__ == "__main__":
 
     print("🚀 Bot is starting...")
     app.run_polling()
+
