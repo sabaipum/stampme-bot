@@ -3,12 +3,15 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 # ---- Handlers ----
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Hello! Welcome to StampMe Bot.\nUse /help to see commands.")
+    await update.message.reply_text(
+        "👋 Hello! Welcome to StampMe Bot.\nUse /help to see available commands."
+    )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "/start - Welcome\n/help - List commands\n/ping - Test bot"
+        "Available commands:\n/start - Welcome message\n/help - List commands\n/ping - Test bot"
     )
 
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -16,14 +19,15 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---- Main ----
 if __name__ == "__main__":
-    TOKEN = "8128076326:AAHkSTU4ymvUh8epIHDScylTaS9arW-knQM"
+    TOKEN = "YOUR_BOT_TOKEN"
 
+    # No Updater! Just use ApplicationBuilder
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # Add handlers
+    # Add command handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("ping", ping))
 
-    print("🚀 Bot is running...")
+    print("🚀 Bot is starting...")
     app.run_polling()
