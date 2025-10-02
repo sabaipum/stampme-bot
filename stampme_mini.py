@@ -1,29 +1,23 @@
 # stampme_mini.py
+import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# ---- Handlers ----
+TOKEN = os.getenv("8128076326:AAHkSTU4ymvUh8epIHDScylTaS9arW-knQM")  # make sure BOT_TOKEN is set in Render
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Hello! Welcome to StampMe Bot.\nUse /help to see commands.")
+    await update.message.reply_text("Hello 👋 I’m your StampMe bot!")
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "/start - Welcome\n/help - List commands\n/ping - Test bot"
-    )
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Available commands:\n/start - Say hi\n/help - Show this help")
 
-async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Pong! 🏓")
-
-# ---- Main ----
-if __name__ == "__main__":
-    TOKEN = "8128076326:AAHkSTU4ymvUh8epIHDScylTaS9arW-knQM"  # <-- replace with your real BotFather token
-
+def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # Add handlers
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("ping", ping))
+    app.add_handler(CommandHandler("help", help_cmd))
 
-    print("🚀 Bot is running...")
-    app.run_polling()
+    app.run_polling()   # ✅ replaces Updater
+
+if __name__ == "__main__":
+    main()
