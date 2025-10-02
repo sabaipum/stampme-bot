@@ -3,7 +3,7 @@ import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-TOKEN = os.getenv("8128076326:AAHkSTU4ymvUh8epIHDScylTaS9arW-knQM")  # make sure BOT_TOKEN is set in Render
+TOKEN = os.getenv(8128076326:AAHkSTU4ymvUh8epIHDScylTaS9arW-knQM)  # make sure BOT_TOKEN is set in Render
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Hello 👋 I’m your StampMe bot!")
@@ -21,3 +21,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
