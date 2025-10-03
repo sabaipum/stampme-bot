@@ -15,11 +15,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     # Build the application
     app = ApplicationBuilder().token(TOKEN).build()
-
+    
     # Add command handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
-
+    
     # Start polling
     app.run_polling()
 
