@@ -9,7 +9,7 @@ import qrcode
 # Configuration
 TOKEN = os.getenv("BOT_TOKEN")
 PORT = int(os.getenv("PORT", 10000))
-BOT_USERNAME = os.getenv("BOT_USERNAME", "YourBot")  # Set this in Render env vars
+BOT_USERNAME = os.getenv("BOT_USERNAME", "stampmebot")  # Set this in Render env vars
 
 # In-memory storage (use database in production)
 campaigns = {}  # {campaign_id: {"name": str, "stamps_needed": int, "merchant_id": int, "customers": {user_id: stamps}}}
@@ -439,3 +439,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
