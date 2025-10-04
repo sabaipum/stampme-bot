@@ -347,12 +347,86 @@ async def stamp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Error: {str(e)}")
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle button clicks for stamping"""
+    """Handle button clicks for stamping and menu actions"""
     query = update.callback_query
     await query.answer()
     
     data = query.data
     
+    # Handle menu buttons
+    if data == "show_help":
+        await query.edit_message_text(
+            "📖 *StampMe Bot - Help Guide*\n\n"
+            "*For Customers:*\n"
+            "• /wallet - View your stamp cards\n"
+            "• Scan QR codes at stores to join campaigns\n\n"
+            "*For Merchants:*\n\n"
+            "1️⃣ *Create a Campaign:*\n"
+            "`/newcampaign Coffee 5`\n"
+            "(Creates 'Coffee' campaign with 5 stamps)\n\n"
+            "2️⃣ *View Your Campaigns:*\n"
+            "`/mycampaigns`\n\n"
+            "3️⃣ *Get QR Code:*\n"
+            "`/getqr 1`\n"
+            "(Replace 1 with your campaign ID)\n\n"
+            "4️⃣ *Add Stamps:*\n"
+            "`/stamp 1`\n"
+            "(Shows customer list to stamp)\n\n"
+            "💡 Just tap any command to copy it!",
+            parse_mode="Markdown"
+        )
+        return
+    
+    elif data == "show_wallet":
+        user_id = query.from_user.id
+        user_campaigns = []
+        for campaign_id, campaign in campaigns.items():
+            if user_id in campaign["customers"]:
+                user_campaigns.append((campaign_id, campaign))
+        
+        if not user_campaigns:
+            await query.edit_message_text(
+                "📭 *You don't have any stamp cards yet!*\n\n"
+                "🎯 Scan a QR code at a store to get started!",
+                parse_mode="Markdown"
+            )
+            return
+        
+        message = "💳 *Your Stamp Cards:*\n\n"
+        for campaign_id, campaign in user_campaigns:
+            customer_data = campaign["customers"][user_id]
+            stamps = customer_data["stamps"]
+            needed = campaign["stamps_needed"]
+            progress = "⭐" * min(stamps, needed) + "☆" * max(0, needed - stamps)
+            
+            if stamps >= needed:
+                status = "✅ COMPLETED!"
+                emoji = "🎉"
+            else:
+                status = f"{stamps}/{needed}"
+                emoji = "📋"
+            
+            message += f"{emoji} *{campaign['name']}*\n{progress}\n{status}\n─────────────\n"
+        
+        await query.edit_message_text(message, parse_mode="Markdown")
+        return
+    
+    elif data == "create_campaign_help":
+        await query.edit_message_text(
+            "➕ *Create Your First Campaign*\n\n"
+            "Use this command format:\n"
+            "`/newcampaign <n> <stamps>`\n\n"
+            "*Examples:*\n"
+            "• `/newcampaign Coffee 5`\n"
+            "• `/newcampaign Pizza 8`\n"
+            "• `/newcampaign Haircut 3`\n\n"
+            "The last number is how many stamps needed!\n\n"
+            "👉 Just copy and modify one of the examples above!",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Handle stamping
     if data.startswith("stamp_"):
         parts = data.split("_")
         campaign_id = int(parts[1])
@@ -535,7 +609,7 @@ async def main():
     # Start health check server
     await start_web_server()
     
-    # Build telegram application with error handling
+    # Build telegram application
     app = ApplicationBuilder().token(TOKEN).build()
     
     # Add command handlers
@@ -549,20 +623,29 @@ async def main():
     app.add_handler(CommandHandler("campaign", campaign_details))
     app.add_handler(CallbackQueryHandler(button_callback))
     
-    # Initialize and start with retry logic
+    # Initialize
+    await app.initialize()
+    await app.start()
+    
+    # Try to delete any existing webhook first
     try:
-        await app.initialize()
-        await app.start()
-        
+        await app.bot.delete_webhook(drop_pending_updates=True)
+        print("✅ Cleared any existing webhook")
+        await asyncio.sleep(2)  # Wait for Telegram to process
+    except Exception as e:
+        print(f"⚠️  Could not clear webhook: {e}")
+    
+    try:
         print("⏳ Starting polling (this may take a moment)...")
         await app.updater.start_polling(
-            drop_pending_updates=True,  # Ignore old updates
-            allowed_updates=Update.ALL_TYPES
+            drop_pending_updates=True,
+            allowed_updates=Update.ALL_TYPES,
+            timeout=30
         )
         
         print("✅ Bot is running successfully!")
         print(f"📱 Bot username: @{BOT_USERNAME}")
-        print(f"🌐 Health check available at http://0.0.0.0:{PORT}")
+        print(f"🌐 Health check: http://0.0.0.0:{PORT}")
         
         # Keep running
         await asyncio.Event().wait()
@@ -571,9 +654,11 @@ async def main():
         print(f"❌ Error starting bot: {e}")
         if "Conflict" in str(e):
             print("\n⚠️  CONFLICT DETECTED!")
-            print("Another instance of this bot is already running.")
-            print("Please stop all other instances and try again.")
-            print("Wait 60 seconds after stopping other instances before restarting.")
+            print("Steps to fix:")
+            print("1. Visit: https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true".replace("{TOKEN}", TOKEN[:10] + "..."))
+            print("2. Stop ALL other instances of this bot")
+            print("3. Wait 60 seconds")
+            print("4. Restart this service")
         raise
 
 if __name__ == "__main__":
