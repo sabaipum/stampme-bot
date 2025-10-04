@@ -1,24 +1,25 @@
 import os
 import asyncio
 import io
+from datetime import datetime
 from aiohttp import web
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
 import qrcode
+from PIL import Image, ImageDraw, ImageFont
+from database import Database
 
 # Configuration
 TOKEN = os.getenv("BOT_TOKEN")
 PORT = int(os.getenv("PORT", 10000))
-BOT_USERNAME = os.getenv("BOT_USERNAME", "stampmebot")  # Set this in Render env vars
+BOT_USERNAME = os.getenv("BOT_USERNAME", "stampmebot")
 
-# In-memory storage (use database in production)
-campaigns = {}  # {campaign_id: {"name": str, "stamps_needed": int, "merchant_id": int, "customers": {user_id: stamps}}}
-campaign_counter = 0
-merchant_campaigns = {}  # {merchant_id: [campaign_ids]}
+# Database instance
+db = Database()
 
-# Health check endpoint
+# Health check
 async def health_check(request):
-    return web.Response(text="StampMe Bot is running! 🎉")
+    return web.Response(text="StampMe Bot Running!")
 
 async def start_web_server():
     app = web.Application()
@@ -30,641 +31,440 @@ async def start_web_server():
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', PORT)
     await site.start()
-    print(f"✅ Health check server started on port {PORT}")
+    print(f"Health check server started on port {PORT}")
 
-# ==================== COMMAND HANDLERS ====================
+# Generate visual stamp card
+def generate_card_image(campaign_name, current_stamps, needed_stamps):
+    """Generate a beautiful stamp card image"""
+    width, height = 800, 400
+    img = Image.new('RGB', (width, height), color='#6366f1')
+    draw = ImageDraw.Draw(img)
+    
+    # Try to use a nice font, fallback to default
+    try:
+        title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48)
+        text_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 32)
+    except:
+        title_font = ImageFont.load_default()
+        text_font = ImageFont.load_default()
+    
+    # Title
+    draw.text((50, 40), campaign_name, fill='white', font=title_font)
+    
+    # Stamps grid
+    stamp_size = 60
+    spacing = 20
+    start_x = 50
+    start_y = 150
+    cols = 5
+    
+    for i in range(needed_stamps):
+        row = i // cols
+        col = i % cols
+        x = start_x + col * (stamp_size + spacing)
+        y = start_y + row * (stamp_size + spacing)
+        
+        if i < current_stamps:
+            draw.ellipse([x, y, x + stamp_size, y + stamp_size], fill='#fbbf24', outline='white', width=3)
+            draw.text((x + 20, y + 15), "★", fill='white', font=text_font)
+        else:
+            draw.ellipse([x, y, x + stamp_size, y + stamp_size], fill='none', outline='white', width=3)
+    
+    # Progress text
+    progress_text = f"{current_stamps}/{needed_stamps} Stamps"
+    draw.text((50, height - 80), progress_text, fill='white', font=text_font)
+    
+    return img
 
+# Command handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /start command and deep links for joining campaigns"""
     user_id = update.effective_user.id
     username = update.effective_user.username or update.effective_user.first_name
     
-    # Check if this is a deep link (QR code scan)
-    if context.args and len(context.args) > 0:
+    await db.create_customer(user_id, username, update.effective_user.first_name)
+    
+    # Handle deep links (QR scan or referral)
+    if context.args:
         arg = context.args[0]
         
-        # Handle campaign join via QR code
-        if arg.startswith("join_"):
-            campaign_id = int(arg.split("_")[1])
+        # Referral link
+        if arg.startswith("ref_"):
+            parts = arg.split("_")
+            referrer_id = int(parts[1])
+            campaign_id = int(parts[2])
             
-            if campaign_id not in campaigns:
-                await update.message.reply_text("❌ Campaign not found.")
+            if referrer_id != user_id:
+                await db.create_referral(referrer_id, user_id, campaign_id)
+                await db.give_referral_bonus(referrer_id, campaign_id)
+                
+                await update.message.reply_text(
+                    f"Welcome! You were referred by a friend.\n"
+                    f"You both get a bonus stamp!",
+                    parse_mode="Markdown"
+                )
+        
+        # Campaign join
+        elif arg.startswith("join_"):
+            campaign_id = int(arg.split("_")[1])
+            campaign = await db.get_campaign(campaign_id)
+            
+            if not campaign:
+                await update.message.reply_text("Campaign not found.")
                 return
             
-            campaign = campaigns[campaign_id]
+            # Check expiration
+            if campaign['expires_at'] and campaign['expires_at'] < datetime.now():
+                await update.message.reply_text("This campaign has expired.")
+                return
             
-            # Add customer to campaign
-            if user_id not in campaign["customers"]:
-                campaign["customers"][user_id] = {
-                    "stamps": 0,
-                    "username": username
-                }
+            enrollment = await db.get_enrollment(campaign_id, user_id)
+            
+            if not enrollment:
+                await db.enroll_customer(campaign_id, user_id)
+                
+                # Get reward tiers
+                rewards = await db.get_campaign_rewards(campaign_id)
+                reward_text = ""
+                if rewards:
+                    reward_text = "\n\nRewards:\n" + "\n".join(
+                        f"• {r['stamps_required']} stamps: {r['reward_name']}"
+                        for r in rewards
+                    )
+                
                 await update.message.reply_text(
-                    f"👋 Welcome! You've joined **{campaign['name']}** campaign!\n\n"
-                    f"🎯 Collect {campaign['stamps_needed']} stamps to earn your reward.\n"
-                    f"📊 Current progress: 0/{campaign['stamps_needed']}\n\n"
-                    f"Use /wallet to check your stamps anytime!",
+                    f"Welcome to {campaign['name']}!\n\n"
+                    f"Collect {campaign['stamps_needed']} stamps to earn rewards."
+                    f"{reward_text}\n\n"
+                    f"Use /wallet to track progress!",
                     parse_mode="Markdown"
                 )
             else:
-                current_stamps = campaign["customers"][user_id]["stamps"]
                 await update.message.reply_text(
-                    f"Welcome back to **{campaign['name']}**!\n\n"
-                    f"📊 Your progress: {current_stamps}/{campaign['stamps_needed']} stamps",
-                    parse_mode="Markdown"
+                    f"Welcome back to {campaign['name']}!\n"
+                    f"Progress: {enrollment['stamps']}/{campaign['stamps_needed']}"
                 )
             return
     
-    # Normal start message
+    # Normal start
+    keyboard = [
+        [InlineKeyboardButton("My Wallet", callback_data="show_wallet")],
+        [InlineKeyboardButton("Help", callback_data="show_help")],
+        [InlineKeyboardButton("Create Campaign", callback_data="create_campaign_help")]
+    ]
+    
     await update.message.reply_text(
-        "🎉 **Welcome to StampMe Bot!**\n\n"
-        "**For Customers:**\n"
-        "• Scan QR codes at participating stores\n"
-        "• Use /wallet to check your stamps\n\n"
-        "**For Merchants:**\n"
-        "• /newcampaign <name> <stamps> - Create campaign\n"
-        "• /mycampaigns - View your campaigns\n"
-        "• /getqr <campaign_id> - Get QR code\n"
-        "• /stamp <campaign_id> - Add stamps\n"
-        "• /help - See all commands",
-        parse_mode="Markdown"
-    )
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show help information"""
-    await update.message.reply_text(
-        "📖 **StampMe Bot Commands**\n\n"
-        "**Customer Commands:**\n"
-        "• /wallet - View your stamp cards\n"
-        "• /start - Start the bot\n\n"
-        "**Merchant Commands:**\n"
-        "• /newcampaign <name> <stamps> - Create new campaign\n"
-        "  Example: `/newcampaign Coffee 5`\n"
-        "• /mycampaigns - List your campaigns\n"
-        "• /getqr <campaign_id> - Generate QR code\n"
-        "• /stamp <campaign_id> - Add stamp to customer\n"
-        "• /campaign <campaign_id> - View campaign details\n\n"
-        "Need help? Contact support!",
-        parse_mode="Markdown"
+        f"Welcome to StampMe!\n\n"
+        f"Digital stamp cards for businesses and customers.\n\n"
+        f"Customers: Scan QR codes to collect stamps\n"
+        f"Merchants: Create campaigns and reward loyalty",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 async def newcampaign(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Create a new stamp campaign"""
-    global campaign_counter
-    
     if len(context.args) < 2:
         await update.message.reply_text(
-            "❌ Usage: `/newcampaign <name> <stamps_needed>`\n"
-            "Example: `/newcampaign Coffee 5`",
-            parse_mode="Markdown"
+            "Usage: /newcampaign <name> <stamps>\n"
+            "Example: /newcampaign Coffee 5"
         )
         return
     
     try:
         stamps_needed = int(context.args[-1])
-        campaign_name = " ".join(context.args[:-1])
+        name = " ".join(context.args[:-1])
         
-        if stamps_needed < 1 or stamps_needed > 20:
-            await update.message.reply_text("❌ Stamps needed must be between 1 and 20.")
+        if not (1 <= stamps_needed <= 50):
+            await update.message.reply_text("Stamps must be between 1 and 50")
             return
         
-        merchant_id = update.effective_user.id
-        campaign_counter += 1
-        campaign_id = campaign_counter
+        user_id = update.effective_user.id
+        await db.create_merchant(user_id, update.effective_user.username, update.effective_user.first_name)
         
-        # Create campaign
-        campaigns[campaign_id] = {
-            "name": campaign_name,
-            "stamps_needed": stamps_needed,
-            "merchant_id": merchant_id,
-            "customers": {}
-        }
+        campaign_id = await db.create_campaign(user_id, name, stamps_needed)
         
-        # Track merchant campaigns
-        if merchant_id not in merchant_campaigns:
-            merchant_campaigns[merchant_id] = []
-        merchant_campaigns[merchant_id].append(campaign_id)
+        keyboard = [
+            [InlineKeyboardButton("Get QR Code", callback_data=f"getqr_{campaign_id}")],
+            [InlineKeyboardButton("Add Rewards", callback_data=f"addreward_{campaign_id}")],
+            [InlineKeyboardButton("Share Link", callback_data=f"share_{campaign_id}")]
+        ]
         
         await update.message.reply_text(
-            f"✅ **Campaign Created!**\n\n"
-            f"📋 Name: {campaign_name}\n"
-            f"🎯 Stamps needed: {stamps_needed}\n"
-            f"🆔 Campaign ID: {campaign_id}\n\n"
-            f"Use `/getqr {campaign_id}` to generate your QR code!",
-            parse_mode="Markdown"
+            f"Campaign '{name}' created!\n"
+            f"ID: {campaign_id}\n"
+            f"Stamps needed: {stamps_needed}\n\n"
+            f"What's next?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
     except ValueError:
-        await update.message.reply_text("❌ Last argument must be a number (stamps needed).")
+        await update.message.reply_text("Last argument must be a number")
 
-async def getqr(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Generate QR code for a campaign"""
-    if not context.args or len(context.args) != 1:
+async def addreward(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Add reward tier: /addreward <campaign_id> <stamps> <reward_name>"""
+    if len(context.args) < 3:
         await update.message.reply_text(
-            "❌ *Usage:* `/getqr <campaign_id>`\n\n"
-            "*Example:* `/getqr 1`\n\n"
-            "Use /mycampaigns to see your campaign IDs.",
-            parse_mode="Markdown"
+            "Usage: /addreward <campaign_id> <stamps> <reward>\n"
+            "Example: /addreward 1 5 Free Coffee"
         )
         return
     
     try:
         campaign_id = int(context.args[0])
+        stamps_req = int(context.args[1])
+        reward = " ".join(context.args[2:])
         
-        if campaign_id not in campaigns:
-            await update.message.reply_text(
-                "❌ Campaign not found!\n\n"
-                "Use /mycampaigns to see your campaigns."
-            )
-            return
-        
-        campaign = campaigns[campaign_id]
-        merchant_id = update.effective_user.id
-        
-        # Verify merchant owns this campaign
-        if campaign["merchant_id"] != merchant_id:
-            await update.message.reply_text("❌ You don't own this campaign.")
-            return
-        
-        # Send "generating" message
-        status_msg = await update.message.reply_text("🔄 Generating QR code...")
-        
-        # Generate QR code
-        qr_link = f"https://t.me/{BOT_USERNAME}?start=join_{campaign_id}"
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_L,
-            box_size=10,
-            border=4,
-        )
-        qr.add_data(qr_link)
-        qr.make(fit=True)
-        
-        img = qr.make_image(fill_color="black", back_color="white")
-        
-        # Save to bytes
+        await db.add_reward_tier(campaign_id, stamps_req, reward)
+        await update.message.reply_text(f"Reward added: {stamps_req} stamps → {reward}")
+    except:
+        await update.message.reply_text("Error adding reward")
+
+async def getqr(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Usage: /getqr <campaign_id>")
+        return
+    
+    campaign_id = int(context.args[0])
+    campaign = await db.get_campaign(campaign_id)
+    
+    if not campaign:
+        await update.message.reply_text("Campaign not found")
+        return
+    
+    # Generate QR
+    link = f"https://t.me/{BOT_USERNAME}?start=join_{campaign_id}"
+    qr = qrcode.QRCode(version=1, box_size=10, border=4)
+    qr.add_data(link)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    
+    bio = io.BytesIO()
+    img.save(bio, 'PNG')
+    bio.seek(0)
+    
+    await update.message.reply_photo(
+        photo=bio,
+        caption=f"QR Code for: {campaign['name']}\n\nCustomers scan this to join!\n\nLink: {link}"
+    )
+
+async def mycampaigns(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    campaigns = await db.get_merchant_campaigns(update.effective_user.id)
+    
+    if not campaigns:
+        await update.message.reply_text("You haven't created campaigns yet.\n\nUse: /newcampaign <name> <stamps>")
+        return
+    
+    message = "Your Campaigns:\n\n"
+    for c in campaigns:
+        customers = await db.get_campaign_customers(c['id'])
+        message += f"• {c['name']} (ID: {c['id']})\n"
+        message += f"  Stamps: {c['stamps_needed']}\n"
+        message += f"  Customers: {len(customers)}\n\n"
+    
+    await update.message.reply_text(message)
+
+async def stamp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Usage: /stamp <campaign_id>")
+        return
+    
+    campaign_id = int(context.args[0])
+    customers = await db.get_campaign_customers(campaign_id)
+    
+    if not customers:
+        await update.message.reply_text("No customers enrolled yet")
+        return
+    
+    keyboard = []
+    for c in customers:
+        name = c['username'] or c['first_name']
+        campaign = await db.get_campaign(campaign_id)
+        text = f"{name} ({c['stamps']}/{campaign['stamps_needed']})"
+        keyboard.append([InlineKeyboardButton(text, callback_data=f"dostamp_{c['id']}")])
+    
+    await update.message.reply_text(
+        "Select customer to stamp:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    enrollments = await db.get_customer_enrollments(update.effective_user.id)
+    
+    if not enrollments:
+        await update.message.reply_text("No stamp cards yet!\n\nScan a QR code to join a campaign.")
+        return
+    
+    for e in enrollments:
+        # Generate visual card
+        img = generate_card_image(e['name'], e['stamps'], e['stamps_needed'])
         bio = io.BytesIO()
-        bio.name = f'qr_campaign_{campaign_id}.png'
         img.save(bio, 'PNG')
         bio.seek(0)
         
-        # Delete status message
-        await status_msg.delete()
+        status = "COMPLETED!" if e['completed'] else f"{e['stamps']}/{e['stamps_needed']}"
         
-        # Send QR code
         await update.message.reply_photo(
             photo=bio,
-            caption=f"📱 *QR Code for: {campaign['name']}*\n\n"
-                    f"🎯 Stamps needed: {campaign['stamps_needed']}\n"
-                    f"👥 Customers: {len(campaign['customers'])}\n\n"
-                    f"📋 *Instructions:*\n"
-                    f"• Print this QR code\n"
-                    f"• Display it at your store\n"
-                    f"• Customers scan to join!\n\n"
-                    f"🔗 Direct link:\n`{qr_link}`",
-            parse_mode="Markdown"
+            caption=f"{e['name']}\nStatus: {status}"
         )
-        
-    except ValueError:
-        await update.message.reply_text(
-            "❌ Campaign ID must be a number!\n\n"
-            "*Example:* `/getqr 1`",
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error generating QR code: {str(e)}")
 
-async def mycampaigns(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """List merchant's campaigns"""
-    merchant_id = update.effective_user.id
-    
-    if merchant_id not in merchant_campaigns or not merchant_campaigns[merchant_id]:
-        await update.message.reply_text(
-            "📭 *You haven't created any campaigns yet!*\n\n"
-            "🎯 *Get started:*\n"
-            "Use `/newcampaign <n> <stamps>` to create your first campaign!\n\n"
-            "*Example:* `/newcampaign Coffee 5`",
-            parse_mode="Markdown"
-        )
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Analytics for merchants"""
+    if not context.args:
+        await update.message.reply_text("Usage: /stats <campaign_id> [days]")
         return
     
-    message = "📊 *Your Campaigns:*\n\n"
+    campaign_id = int(context.args[0])
+    days = int(context.args[1]) if len(context.args) > 1 else 30
     
-    for idx, campaign_id in enumerate(merchant_campaigns[merchant_id], 1):
-        if campaign_id not in campaigns:
-            continue
-            
-        campaign = campaigns[campaign_id]
-        customer_count = len(campaign["customers"])
-        completed_count = sum(1 for c in campaign["customers"].values() 
-                            if c["stamps"] >= campaign["stamps_needed"])
-        
-        message += f"*{idx}. {campaign['name']}*\n"
-        message += f"   🆔 ID: `{campaign_id}`\n"
-        message += f"   🎯 Stamps: {campaign['stamps_needed']}\n"
-        message += f"   👥 Customers: {customer_count}\n"
-        message += f"   ✅ Completed: {completed_count}\n"
-        message += f"   📱 Get QR: `/getqr {campaign_id}`\n"
-        message += f"   ⭐ Stamp: `/stamp {campaign_id}`\n"
-        message += "   ─────────────\n"
-    
-    message += "\n💡 *Tip:* Tap any command to use it!"
-    
-    await update.message.reply_text(message, parse_mode="Markdown")
-
-async def stamp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Add stamp to customer - shows customer list"""
-    if not context.args or len(context.args) != 1:
-        await update.message.reply_text(
-            "❌ *Usage:* `/stamp <campaign_id>`\n\n"
-            "*Example:* `/stamp 1`\n\n"
-            "This will show you a list of customers to stamp.\n"
-            "Use /mycampaigns to see your campaign IDs.",
-            parse_mode="Markdown"
-        )
+    campaign = await db.get_campaign(campaign_id)
+    if not campaign:
+        await update.message.reply_text("Campaign not found")
         return
     
-    try:
-        campaign_id = int(context.args[0])
-        
-        if campaign_id not in campaigns:
-            await update.message.reply_text(
-                "❌ Campaign not found!\n\n"
-                "Use /mycampaigns to see your campaigns."
-            )
-            return
-        
-        campaign = campaigns[campaign_id]
-        merchant_id = update.effective_user.id
-        
-        if campaign["merchant_id"] != merchant_id:
-            await update.message.reply_text("❌ You don't own this campaign.")
-            return
-        
-        if not campaign["customers"]:
-            await update.message.reply_text(
-                f"📭 *No customers yet for '{campaign['name']}'*\n\n"
-                f"Share your QR code to get customers!\n"
-                f"Use `/getqr {campaign_id}` to get the QR code.",
-                parse_mode="Markdown"
-            )
-            return
-        
-        # Create inline keyboard with customer list
-        keyboard = []
-        for user_id, customer_data in campaign["customers"].items():
-            username = customer_data["username"]
-            stamps = customer_data["stamps"]
-            needed = campaign["stamps_needed"]
-            
-            # Add status emoji
-            if stamps >= needed:
-                status = "✅"
-            else:
-                status = "⭐"
-            
-            button_text = f"{status} {username} ({stamps}/{needed})"
-            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"stamp_{campaign_id}_{user_id}")])
-        
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.message.reply_text(
-            f"👥 *Select customer to add stamp:*\n\n"
-            f"📋 Campaign: *{campaign['name']}*\n"
-            f"🎯 Stamps needed: {campaign['stamps_needed']}\n\n"
-            f"Tap a customer below to give them a stamp:",
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
-        
-    except ValueError:
-        await update.message.reply_text(
-            "❌ Campaign ID must be a number!\n\n"
-            "*Example:* `/stamp 1`",
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {str(e)}")
+    stats = await db.get_campaign_stats(campaign_id, days)
+    
+    completion_rate = 0
+    if stats['total_customers'] > 0:
+        completion_rate = (stats['completed_customers'] / stats['total_customers']) * 100
+    
+    message = f"Analytics: {campaign['name']}\n\n"
+    message += f"Total Customers: {stats['total_customers']}\n"
+    message += f"Completed: {stats['completed_customers']}\n"
+    message += f"Completion Rate: {completion_rate:.1f}%\n"
+    message += f"Total Stamps Given: {stats['total_stamps']}\n"
+    message += f"Recent Activity ({days}d): {stats['recent_stamps']} stamps\n"
+    
+    await update.message.reply_text(message)
 
+async def share(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate referral link"""
+    if not context.args:
+        await update.message.reply_text("Usage: /share <campaign_id>")
+        return
+    
+    campaign_id = int(context.args[0])
+    user_id = update.effective_user.id
+    
+    link = f"https://t.me/{BOT_USERNAME}?start=ref_{user_id}_{campaign_id}"
+    
+    await update.message.reply_text(
+        f"Share this link with friends!\n\n"
+        f"{link}\n\n"
+        f"You both get a bonus stamp when they join!"
+    )
+
+# Button callbacks
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle button clicks for stamping and menu actions"""
     query = update.callback_query
     await query.answer()
     
     data = query.data
     
-    # Handle menu buttons
+    if data == "show_wallet":
+        await query.message.delete()
+        await wallet(update, context)
+        return
+    
     if data == "show_help":
         await query.edit_message_text(
-            "📖 *StampMe Bot - Help Guide*\n\n"
-            "*For Customers:*\n"
-            "• /wallet - View your stamp cards\n"
-            "• Scan QR codes at stores to join campaigns\n\n"
-            "*For Merchants:*\n\n"
-            "1️⃣ *Create a Campaign:*\n"
-            "`/newcampaign Coffee 5`\n"
-            "(Creates 'Coffee' campaign with 5 stamps)\n\n"
-            "2️⃣ *View Your Campaigns:*\n"
-            "`/mycampaigns`\n\n"
-            "3️⃣ *Get QR Code:*\n"
-            "`/getqr 1`\n"
-            "(Replace 1 with your campaign ID)\n\n"
-            "4️⃣ *Add Stamps:*\n"
-            "`/stamp 1`\n"
-            "(Shows customer list to stamp)\n\n"
-            "💡 Just tap any command to copy it!",
-            parse_mode="Markdown"
+            "Commands:\n\n"
+            "Customers:\n"
+            "/wallet - View stamp cards\n\n"
+            "Merchants:\n"
+            "/newcampaign <name> <stamps>\n"
+            "/mycampaigns - List campaigns\n"
+            "/getqr <id> - Get QR code\n"
+            "/stamp <id> - Add stamps\n"
+            "/stats <id> - View analytics\n"
+            "/addreward <id> <stamps> <reward>\n"
+            "/share <id> - Get referral link"
         )
         return
     
-    elif data == "show_wallet":
-        user_id = query.from_user.id
-        user_campaigns = []
-        for campaign_id, campaign in campaigns.items():
-            if user_id in campaign["customers"]:
-                user_campaigns.append((campaign_id, campaign))
+    if data.startswith("getqr_"):
+        campaign_id = int(data.split("_")[1])
+        context.args = [str(campaign_id)]
+        await query.message.delete()
+        await getqr(update, context)
+        return
+    
+    if data.startswith("dostamp_"):
+        enrollment_id = int(data.split("_")[1])
         
-        if not user_campaigns:
-            await query.edit_message_text(
-                "📭 *You don't have any stamp cards yet!*\n\n"
-                "🎯 Scan a QR code at a store to get started!",
-                parse_mode="Markdown"
+        # Get enrollment details
+        async with db.pool.acquire() as conn:
+            enrollment = await conn.fetchrow(
+                'SELECT * FROM enrollments WHERE id = $1', enrollment_id
             )
-            return
-        
-        message = "💳 *Your Stamp Cards:*\n\n"
-        for campaign_id, campaign in user_campaigns:
-            customer_data = campaign["customers"][user_id]
-            stamps = customer_data["stamps"]
-            needed = campaign["stamps_needed"]
-            progress = "⭐" * min(stamps, needed) + "☆" * max(0, needed - stamps)
-            
-            if stamps >= needed:
-                status = "✅ COMPLETED!"
-                emoji = "🎉"
-            else:
-                status = f"{stamps}/{needed}"
-                emoji = "📋"
-            
-            message += f"{emoji} *{campaign['name']}*\n{progress}\n{status}\n─────────────\n"
-        
-        await query.edit_message_text(message, parse_mode="Markdown")
-        return
-    
-    elif data == "create_campaign_help":
-        await query.edit_message_text(
-            "➕ *Create Your First Campaign*\n\n"
-            "Use this command format:\n"
-            "`/newcampaign <n> <stamps>`\n\n"
-            "*Examples:*\n"
-            "• `/newcampaign Coffee 5`\n"
-            "• `/newcampaign Pizza 8`\n"
-            "• `/newcampaign Haircut 3`\n\n"
-            "The last number is how many stamps needed!\n\n"
-            "👉 Just copy and modify one of the examples above!",
-            parse_mode="Markdown"
-        )
-        return
-    
-    # Handle stamping
-    if data.startswith("stamp_"):
-        parts = data.split("_")
-        campaign_id = int(parts[1])
-        customer_id = int(parts[2])
-        
-        if campaign_id not in campaigns:
-            await query.edit_message_text("❌ Campaign no longer exists.")
-            return
-        
-        campaign = campaigns[campaign_id]
-        
-        if customer_id not in campaign["customers"]:
-            await query.edit_message_text("❌ Customer not found in this campaign.")
-            return
-        
-        customer_data = campaign["customers"][customer_id]
+            campaign = await db.get_campaign(enrollment['campaign_id'])
+            customer = await conn.fetchrow(
+                'SELECT * FROM customers WHERE id = $1', enrollment['customer_id']
+            )
         
         # Add stamp
-        customer_data["stamps"] += 1
-        current_stamps = customer_data["stamps"]
-        stamps_needed = campaign["stamps_needed"]
+        new_stamps = await db.add_stamp(enrollment_id, query.from_user.id)
         
-        # Create progress bar
-        progress = "⭐" * min(current_stamps, stamps_needed) + "☆" * max(0, stamps_needed - current_stamps)
-        
-        # Check if completed
-        if current_stamps >= stamps_needed:
-            await query.edit_message_text(
-                f"🎉 *STAMP ADDED - REWARD EARNED!*\n\n"
-                f"👤 Customer: {customer_data['username']}\n"
-                f"📋 Campaign: {campaign['name']}\n"
-                f"{progress}\n"
-                f"Progress: {current_stamps}/{stamps_needed}\n\n"
-                f"✅ *This customer has completed the campaign!*\n"
-                f"🎁 They can now claim their reward!",
-                parse_mode="Markdown"
-            )
-            
-            # Notify customer of completion
-            try:
-                await context.bot.send_message(
-                    chat_id=customer_id,
-                    text=f"🎉 *CONGRATULATIONS!*\n\n"
-                         f"You've completed the *{campaign['name']}* campaign!\n\n"
-                         f"{progress}\n"
-                         f"✅ {current_stamps}/{stamps_needed} stamps collected\n\n"
-                         f"🎁 *Show this message at the store to claim your reward!*\n\n"
-                         f"Keep using /wallet to track your progress!",
-                    parse_mode="Markdown"
-                )
-            except Exception as e:
-                print(f"Failed to notify customer: {e}")
+        # Check completion
+        if new_stamps >= campaign['stamps_needed']:
+            await db.mark_completed(enrollment_id)
+            status = "COMPLETED!"
         else:
-            await query.edit_message_text(
-                f"✅ *STAMP ADDED SUCCESSFULLY!*\n\n"
-                f"👤 Customer: {customer_data['username']}\n"
-                f"📋 Campaign: {campaign['name']}\n"
-                f"{progress}\n"
-                f"Progress: {current_stamps}/{stamps_needed}\n\n"
-                f"💪 Keep going! Only {stamps_needed - current_stamps} more to go!",
-                parse_mode="Markdown"
-            )
-            
-            # Notify customer of new stamp
-            try:
-                remaining = stamps_needed - current_stamps
-                await context.bot.send_message(
-                    chat_id=customer_id,
-                    text=f"⭐ *NEW STAMP RECEIVED!*\n\n"
-                         f"📋 Campaign: *{campaign['name']}*\n"
-                         f"{progress}\n"
-                         f"Progress: {current_stamps}/{stamps_needed}\n\n"
-                         f"🎯 Only {remaining} more stamp{'s' if remaining != 1 else ''} to earn your reward!\n\n"
-                         f"Use /wallet to see all your cards.",
-                    parse_mode="Markdown"
-                )
-            except Exception as e:
-                print(f"Failed to notify customer: {e}")
-
-async def wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show customer's stamp cards"""
-    user_id = update.effective_user.id
-    
-    # Find all campaigns user is in
-    user_campaigns = []
-    for campaign_id, campaign in campaigns.items():
-        if user_id in campaign["customers"]:
-            user_campaigns.append((campaign_id, campaign))
-    
-    if not user_campaigns:
-        await update.message.reply_text(
-            "📭 *You don't have any stamp cards yet!*\n\n"
-            "🎯 *How to get started:*\n"
-            "1. Visit a participating store\n"
-            "2. Scan their QR code\n"
-            "3. Start collecting stamps!\n\n"
-            "✨ Earn rewards with every purchase!",
-            parse_mode="Markdown"
+            status = f"{new_stamps}/{campaign['stamps_needed']}"
+        
+        await query.edit_message_text(
+            f"Stamp added to {customer['username']}!\n"
+            f"Progress: {status}"
         )
-        return
-    
-    message = "💳 *Your Stamp Cards:*\n\n"
-    
-    for campaign_id, campaign in user_campaigns:
-        customer_data = campaign["customers"][user_id]
-        stamps = customer_data["stamps"]
-        needed = campaign["stamps_needed"]
         
-        # Create progress bar with emojis
-        filled = min(stamps, needed)
-        progress = "⭐" * filled + "☆" * (needed - filled)
-        
-        # Determine status
-        if stamps >= needed:
-            status_text = "✅ *COMPLETED!* Claim your reward! 🎁"
-            card_emoji = "🎉"
-        else:
-            percentage = int((stamps / needed) * 100)
-            status_text = f"📊 Progress: {stamps}/{needed} ({percentage}%)"
-            card_emoji = "📋"
-        
-        message += f"{card_emoji} *{campaign['name']}*\n"
-        message += f"{progress}\n"
-        message += f"{status_text}\n"
-        message += "─────────────\n"
-    
-    message += "\n💡 *Keep scanning to earn more rewards!*"
-    
-    await update.message.reply_text(message, parse_mode="Markdown")
-
-async def campaign_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """View campaign details"""
-    if len(context.args) != 1:
-        await update.message.reply_text("❌ Usage: `/campaign <campaign_id>`", parse_mode="Markdown")
-        return
-    
-    try:
-        campaign_id = int(context.args[0])
-        
-        if campaign_id not in campaigns:
-            await update.message.reply_text("❌ Campaign not found.")
-            return
-        
-        campaign = campaigns[campaign_id]
-        merchant_id = update.effective_user.id
-        
-        if campaign["merchant_id"] != merchant_id:
-            await update.message.reply_text("❌ You don't own this campaign.")
-            return
-        
-        message = f"📊 **Campaign Details**\n\n"
-        message += f"🆔 ID: {campaign_id}\n"
-        message += f"📋 Name: {campaign['name']}\n"
-        message += f"🎯 Stamps needed: {campaign['stamps_needed']}\n"
-        message += f"👥 Total customers: {len(campaign['customers'])}\n\n"
-        
-        if campaign["customers"]:
-            message += "**Customers:**\n"
-            for user_id, customer_data in campaign["customers"].items():
-                username = customer_data["username"]
-                stamps = customer_data["stamps"]
-                status = "✅" if stamps >= campaign['stamps_needed'] else f"{stamps}/{campaign['stamps_needed']}"
-                message += f"• {username}: {status}\n"
-        
-        await update.message.reply_text(message, parse_mode="Markdown")
-        
-    except ValueError:
-        await update.message.reply_text("❌ Campaign ID must be a number.")
-
-# ==================== MAIN ====================
+        # Notify customer
+        try:
+            await context.bot.send_message(
+                customer['id'],
+                f"New stamp received!\n{campaign['name']}: {status}"
+            )
+        except:
+            pass
 
 async def main():
-    """Start the bot"""
-    print("🚀 Starting StampMe Bot...")
+    print("Starting StampMe Bot...")
     
-    if not TOKEN:
-        print("❌ ERROR: BOT_TOKEN environment variable not set!")
-        return
+    # Connect to database
+    await db.connect()
+    print("Database connected")
     
-    # Start health check server
+    # Start health server
     await start_web_server()
     
-    # Build telegram application
+    # Build bot
     app = ApplicationBuilder().token(TOKEN).build()
     
-    # Add command handlers
+    # Add handlers
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("newcampaign", newcampaign))
+    app.add_handler(CommandHandler("addreward", addreward))
     app.add_handler(CommandHandler("getqr", getqr))
     app.add_handler(CommandHandler("mycampaigns", mycampaigns))
     app.add_handler(CommandHandler("stamp", stamp_command))
     app.add_handler(CommandHandler("wallet", wallet))
-    app.add_handler(CommandHandler("campaign", campaign_details))
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("share", share))
     app.add_handler(CallbackQueryHandler(button_callback))
     
-    # Initialize
     await app.initialize()
     await app.start()
     
-    # Try to delete any existing webhook first
     try:
         await app.bot.delete_webhook(drop_pending_updates=True)
-        print("✅ Cleared any existing webhook")
-        await asyncio.sleep(2)  # Wait for Telegram to process
-    except Exception as e:
-        print(f"⚠️  Could not clear webhook: {e}")
+        await asyncio.sleep(2)
+    except:
+        pass
     
-    try:
-        print("⏳ Starting polling (this may take a moment)...")
-        await app.updater.start_polling(
-            drop_pending_updates=True,
-            allowed_updates=Update.ALL_TYPES,
-            timeout=30
-        )
-        
-        print("✅ Bot is running successfully!")
-        print(f"📱 Bot username: @{BOT_USERNAME}")
-        print(f"🌐 Health check: http://0.0.0.0:{PORT}")
-        
-        # Keep running
-        await asyncio.Event().wait()
-        
-    except Exception as e:
-        print(f"❌ Error starting bot: {e}")
-        if "Conflict" in str(e):
-            print("\n⚠️  CONFLICT DETECTED!")
-            print("Steps to fix:")
-            print("1. Visit: https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true".replace("{TOKEN}", TOKEN[:10] + "..."))
-            print("2. Stop ALL other instances of this bot")
-            print("3. Wait 60 seconds")
-            print("4. Restart this service")
-        raise
+    await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
+    
+    print("Bot is running!")
+    await asyncio.Event().wait()
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n👋 Bot stopped by user")
-    except Exception as e:
-        print(f"\n❌ Fatal error: {e}")
+        print("Bot stopped")
