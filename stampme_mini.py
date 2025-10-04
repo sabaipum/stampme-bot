@@ -528,10 +528,14 @@ async def main():
     """Start the bot"""
     print("🚀 Starting StampMe Bot...")
     
+    if not TOKEN:
+        print("❌ ERROR: BOT_TOKEN environment variable not set!")
+        return
+    
     # Start health check server
     await start_web_server()
     
-    # Build telegram application
+    # Build telegram application with error handling
     app = ApplicationBuilder().token(TOKEN).build()
     
     # Add command handlers
@@ -545,16 +549,37 @@ async def main():
     app.add_handler(CommandHandler("campaign", campaign_details))
     app.add_handler(CallbackQueryHandler(button_callback))
     
-    # Initialize and start
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    
-    print("✅ Bot is running!")
-    print(f"📱 Bot username: @{BOT_USERNAME}")
-    
-    # Keep running
-    await asyncio.Event().wait()
+    # Initialize and start with retry logic
+    try:
+        await app.initialize()
+        await app.start()
+        
+        print("⏳ Starting polling (this may take a moment)...")
+        await app.updater.start_polling(
+            drop_pending_updates=True,  # Ignore old updates
+            allowed_updates=Update.ALL_TYPES
+        )
+        
+        print("✅ Bot is running successfully!")
+        print(f"📱 Bot username: @{BOT_USERNAME}")
+        print(f"🌐 Health check available at http://0.0.0.0:{PORT}")
+        
+        # Keep running
+        await asyncio.Event().wait()
+        
+    except Exception as e:
+        print(f"❌ Error starting bot: {e}")
+        if "Conflict" in str(e):
+            print("\n⚠️  CONFLICT DETECTED!")
+            print("Another instance of this bot is already running.")
+            print("Please stop all other instances and try again.")
+            print("Wait 60 seconds after stopping other instances before restarting.")
+        raise
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n👋 Bot stopped by user")
+    except Exception as e:
+        print(f"\n❌ Fatal error: {e}")
