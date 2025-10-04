@@ -276,4 +276,3 @@ class Database:
             ''', campaign_id, since)
             
             return dict(stats) if stats else {}
-=============================
