@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw, ImageFont
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import *
-from database_complete import StampMeDatabase
+from database import StampMeDatabase
 
 # Initialize
 db = StampMeDatabase(DATABASE_URL)
@@ -1248,3 +1248,4 @@ if __name__ == "__main__":
         print("\n👋 Bot stopped by user")
     except Exception as e:
         print(f"\n❌ Fatal error: {e}")
+
