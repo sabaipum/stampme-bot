@@ -2,7 +2,7 @@ import os
 
 # Bot Configuration
 TOKEN = os.getenv("BOT_TOKEN")
-BOT_USERNAME = os.getenv("BOT_USERNAME", "stampme_bot")
+BOT_USERNAME = os.getenv("BOT_USERNAME", "stampmebot")
 PORT = int(os.getenv("PORT", 10000))
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -92,5 +92,6 @@ MERCHANT_TIPS = [
 
 
 # ============================================
+
 
 
