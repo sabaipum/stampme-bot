@@ -1,6 +1,5 @@
 import asyncpg
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict
 
 class StampMeDatabase:
     def __init__(self, database_url: str):
@@ -8,7 +7,6 @@ class StampMeDatabase:
         self.db_url = database_url
     
     async def connect(self):
-        """Initialize database connection and create tables"""
         self.pool = await asyncpg.create_pool(
             self.db_url,
             min_size=2,
@@ -19,9 +17,7 @@ class StampMeDatabase:
         print("✅ Database connected and tables created")
     
     async def create_all_tables(self):
-        """Create all tables with complete schema"""
         async with self.pool.acquire() as conn:
-            # Users table (unified merchants and customers)
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     id BIGINT PRIMARY KEY,
@@ -39,7 +35,6 @@ class StampMeDatabase:
                 )
             ''')
             
-            # Campaigns
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS campaigns (
                     id SERIAL PRIMARY KEY,
@@ -56,7 +51,6 @@ class StampMeDatabase:
                 )
             ''')
             
-            # Reward tiers
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS reward_tiers (
                     id SERIAL PRIMARY KEY,
@@ -67,7 +61,6 @@ class StampMeDatabase:
                 )
             ''')
             
-            # Customer enrollments
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS enrollments (
                     id SERIAL PRIMARY KEY,
@@ -84,7 +77,6 @@ class StampMeDatabase:
                 )
             ''')
             
-            # Stamp requests
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS stamp_requests (
                     id SERIAL PRIMARY KEY,
@@ -101,7 +93,6 @@ class StampMeDatabase:
                 )
             ''')
             
-            # Transaction log
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS transactions (
                     id SERIAL PRIMARY KEY,
@@ -109,12 +100,10 @@ class StampMeDatabase:
                     merchant_id BIGINT,
                     action_type TEXT,
                     stamps_change INTEGER DEFAULT 1,
-                    created_at TIMESTAMP DEFAULT NOW(),
-                    CHECK (action_type IN ('stamp_added', 'reward_claimed', 'bonus_stamp', 'referral_bonus'))
+                    created_at TIMESTAMP DEFAULT NOW()
                 )
             ''')
             
-            # Referrals
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS referrals (
                     id SERIAL PRIMARY KEY,
@@ -126,7 +115,6 @@ class StampMeDatabase:
                 )
             ''')
             
-            # Merchant settings
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS merchant_settings (
                     merchant_id BIGINT PRIMARY KEY REFERENCES users(id),
@@ -140,7 +128,6 @@ class StampMeDatabase:
                 )
             ''')
             
-            # Notifications queue
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS notifications (
                     id SERIAL PRIMARY KEY,
@@ -151,7 +138,6 @@ class StampMeDatabase:
                 )
             ''')
             
-            # Daily stats
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS daily_stats (
                     id SERIAL PRIMARY KEY,
@@ -168,8 +154,6 @@ class StampMeDatabase:
     async def close(self):
         if self.pool:
             await self.pool.close()
-    
-    # ==================== USER OPERATIONS ====================
     
     async def create_or_update_user(self, user_id: int, username: str, first_name: str, user_type: str = 'customer'):
         async with self.pool.acquire() as conn:
@@ -224,8 +208,6 @@ class StampMeDatabase:
             ''', user_id)
             return result or False
     
-    # ==================== CAMPAIGN OPERATIONS ====================
-    
     async def create_campaign(self, merchant_id: int, name: str, stamps_needed: int, 
                             description: str = None, reward_description: str = None,
                             expires_days: int = None):
@@ -272,8 +254,6 @@ class StampMeDatabase:
             ''', campaign_id)
             return [dict(row) for row in rows]
     
-    # ==================== ENROLLMENT OPERATIONS ====================
-    
     async def enroll_customer(self, campaign_id: int, customer_id: int):
         async with self.pool.acquire() as conn:
             enrollment_id = await conn.fetchval('''
@@ -299,12 +279,14 @@ class StampMeDatabase:
     async def get_customer_enrollments(self, customer_id: int):
         async with self.pool.acquire() as conn:
             rows = await conn.fetch('''
-                SELECT e.*, c.name, c.stamps_needed, c.expires_at,
+                SELECT e.id, e.campaign_id, e.customer_id, e.stamps, e.joined_at, 
+                       e.last_stamp_at, e.completed, e.completed_at, e.rating, e.feedback,
+                       ca.name, ca.stamps_needed, ca.expires_at,
                        u.first_name as merchant_name
                 FROM enrollments e
-                JOIN campaigns c ON e.campaign_id = c.id
-                JOIN users u ON c.merchant_id = u.id
-                WHERE e.customer_id = $1 AND c.active = TRUE
+                JOIN campaigns ca ON e.campaign_id = ca.id
+                JOIN users u ON ca.merchant_id = u.id
+                WHERE e.customer_id = $1 AND ca.active = TRUE
                 ORDER BY e.last_stamp_at DESC NULLS LAST, e.joined_at DESC
             ''', customer_id)
             return [dict(row) for row in rows]
@@ -320,8 +302,6 @@ class StampMeDatabase:
             ''', campaign_id)
             return [dict(row) for row in rows]
     
-    # ==================== STAMP REQUEST OPERATIONS ====================
-    
     async def create_stamp_request(self, campaign_id: int, customer_id: int, 
                                   merchant_id: int, enrollment_id: int, message: str = None):
         async with self.pool.acquire() as conn:
@@ -335,10 +315,14 @@ class StampMeDatabase:
             return request_id
     
     async def get_pending_requests(self, merchant_id: int):
+        """FIXED: Proper table aliases"""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch('''
-                SELECT sr.*, c.name as campaign_name, u.username, u.first_name,
-                       e.stamps as current_stamps, ca.stamps_needed
+                SELECT sr.id, sr.campaign_id, sr.customer_id, sr.merchant_id, 
+                       sr.enrollment_id, sr.status, sr.customer_message, sr.created_at,
+                       ca.name as campaign_name, ca.stamps_needed,
+                       u.username, u.first_name,
+                       e.stamps as current_stamps
                 FROM stamp_requests sr
                 JOIN campaigns ca ON sr.campaign_id = ca.id
                 JOIN users u ON sr.customer_id = u.id
@@ -433,8 +417,6 @@ class StampMeDatabase:
             ''', merchant_id)
             return count or 0
     
-    # ==================== NOTIFICATIONS ====================
-    
     async def queue_notification(self, user_id: int, message: str):
         async with self.pool.acquire() as conn:
             await conn.execute('''
@@ -455,8 +437,6 @@ class StampMeDatabase:
     async def mark_notification_sent(self, notification_id: int):
         async with self.pool.acquire() as conn:
             await conn.execute('UPDATE notifications SET sent = TRUE WHERE id = $1', notification_id)
-    
-    # ==================== ANALYTICS ====================
     
     async def get_daily_stats(self, merchant_id: int, date = None):
         async with self.pool.acquire() as conn:
