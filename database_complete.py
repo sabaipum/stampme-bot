@@ -1,6 +1,3 @@
-# Complete database with all Phase 1 + Phase 2 features
-# ============================================
-
 import asyncpg
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
@@ -22,7 +19,7 @@ class StampMeDatabase:
         print("✅ Database connected and tables created")
     
     async def create_all_tables(self):
-        """Create all tables with refined schema"""
+        """Create all tables with complete schema"""
         async with self.pool.acquire() as conn:
             # Users table (unified merchants and customers)
             await conn.execute('''
@@ -59,7 +56,7 @@ class StampMeDatabase:
                 )
             ''')
             
-            # Reward tiers (multi-level rewards)
+            # Reward tiers
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS reward_tiers (
                     id SERIAL PRIMARY KEY,
@@ -70,7 +67,7 @@ class StampMeDatabase:
                 )
             ''')
             
-            # Customer enrollments in campaigns
+            # Customer enrollments
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS enrollments (
                     id SERIAL PRIMARY KEY,
@@ -87,7 +84,7 @@ class StampMeDatabase:
                 )
             ''')
             
-            # Stamp requests (approval workflow)
+            # Stamp requests
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS stamp_requests (
                     id SERIAL PRIMARY KEY,
@@ -104,7 +101,7 @@ class StampMeDatabase:
                 )
             ''')
             
-            # Transaction log (every stamp action)
+            # Transaction log
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS transactions (
                     id SERIAL PRIMARY KEY,
@@ -154,7 +151,7 @@ class StampMeDatabase:
                 )
             ''')
             
-            # Daily stats (for analytics)
+            # Daily stats
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS daily_stats (
                     id SERIAL PRIMARY KEY,
@@ -175,7 +172,6 @@ class StampMeDatabase:
     # ==================== USER OPERATIONS ====================
     
     async def create_or_update_user(self, user_id: int, username: str, first_name: str, user_type: str = 'customer'):
-        """Create or update user"""
         async with self.pool.acquire() as conn:
             await conn.execute('''
                 INSERT INTO users (id, username, first_name, user_type, last_active)
@@ -187,21 +183,15 @@ class StampMeDatabase:
             ''', user_id, username, first_name, user_type)
     
     async def get_user(self, user_id: int):
-        """Get user details"""
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow('SELECT * FROM users WHERE id = $1', user_id)
             return dict(row) if row else None
     
     async def request_merchant_access(self, user_id: int):
-        """User requests to become a merchant"""
         async with self.pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE users SET user_type = 'merchant' WHERE id = $1",
-                user_id
-            )
+            await conn.execute("UPDATE users SET user_type = 'merchant' WHERE id = $1", user_id)
     
     async def approve_merchant(self, user_id: int, admin_id: int):
-        """Admin approves merchant"""
         async with self.pool.acquire() as conn:
             await conn.execute('''
                 UPDATE users SET 
@@ -211,7 +201,6 @@ class StampMeDatabase:
                 WHERE id = $1
             ''', user_id, admin_id)
             
-            # Create default settings
             await conn.execute('''
                 INSERT INTO merchant_settings (merchant_id)
                 VALUES ($1)
@@ -219,7 +208,6 @@ class StampMeDatabase:
             ''', user_id)
     
     async def get_pending_merchants(self):
-        """Get merchants awaiting approval"""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch('''
                 SELECT * FROM users 
@@ -229,7 +217,6 @@ class StampMeDatabase:
             return [dict(row) for row in rows]
     
     async def is_merchant_approved(self, user_id: int) -> bool:
-        """Check if user is an approved merchant"""
         async with self.pool.acquire() as conn:
             result = await conn.fetchval('''
                 SELECT merchant_approved FROM users 
@@ -242,7 +229,6 @@ class StampMeDatabase:
     async def create_campaign(self, merchant_id: int, name: str, stamps_needed: int, 
                             description: str = None, reward_description: str = None,
                             expires_days: int = None):
-        """Create a new campaign"""
         async with self.pool.acquire() as conn:
             expires_at = None
             if expires_days:
@@ -257,13 +243,11 @@ class StampMeDatabase:
             return campaign_id
     
     async def get_campaign(self, campaign_id: int):
-        """Get campaign details"""
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow('SELECT * FROM campaigns WHERE id = $1', campaign_id)
             return dict(row) if row else None
     
     async def get_merchant_campaigns(self, merchant_id: int):
-        """Get all campaigns for a merchant"""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch('''
                 SELECT * FROM campaigns 
@@ -273,7 +257,6 @@ class StampMeDatabase:
             return [dict(row) for row in rows]
     
     async def add_reward_tier(self, campaign_id: int, stamps_required: int, reward_name: str, description: str = None):
-        """Add a reward tier to campaign"""
         async with self.pool.acquire() as conn:
             await conn.execute('''
                 INSERT INTO reward_tiers (campaign_id, stamps_required, reward_name, reward_description)
@@ -281,7 +264,6 @@ class StampMeDatabase:
             ''', campaign_id, stamps_required, reward_name, description)
     
     async def get_campaign_rewards(self, campaign_id: int):
-        """Get all reward tiers for a campaign"""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch('''
                 SELECT * FROM reward_tiers 
@@ -293,7 +275,6 @@ class StampMeDatabase:
     # ==================== ENROLLMENT OPERATIONS ====================
     
     async def enroll_customer(self, campaign_id: int, customer_id: int):
-        """Enroll customer in campaign"""
         async with self.pool.acquire() as conn:
             enrollment_id = await conn.fetchval('''
                 INSERT INTO enrollments (campaign_id, customer_id)
@@ -303,16 +284,11 @@ class StampMeDatabase:
                 RETURNING id
             ''', campaign_id, customer_id)
             
-            # Update campaign stats
-            await conn.execute(
-                'UPDATE campaigns SET total_joins = total_joins + 1 WHERE id = $1',
-                campaign_id
-            )
+            await conn.execute('UPDATE campaigns SET total_joins = total_joins + 1 WHERE id = $1', campaign_id)
             
             return enrollment_id
     
     async def get_enrollment(self, campaign_id: int, customer_id: int):
-        """Get enrollment details"""
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow('''
                 SELECT * FROM enrollments 
@@ -321,10 +297,9 @@ class StampMeDatabase:
             return dict(row) if row else None
     
     async def get_customer_enrollments(self, customer_id: int):
-        """Get all enrollments for a customer"""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch('''
-                SELECT e.*, c.name, c.stamps_needed, c.reward_description, c.expires_at,
+                SELECT e.*, c.name, c.stamps_needed, c.expires_at,
                        u.first_name as merchant_name
                 FROM enrollments e
                 JOIN campaigns c ON e.campaign_id = c.id
@@ -335,7 +310,6 @@ class StampMeDatabase:
             return [dict(row) for row in rows]
     
     async def get_campaign_customers(self, campaign_id: int):
-        """Get all customers enrolled in campaign"""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch('''
                 SELECT e.*, u.username, u.first_name
@@ -350,7 +324,6 @@ class StampMeDatabase:
     
     async def create_stamp_request(self, campaign_id: int, customer_id: int, 
                                   merchant_id: int, enrollment_id: int, message: str = None):
-        """Customer requests a stamp"""
         async with self.pool.acquire() as conn:
             request_id = await conn.fetchval('''
                 INSERT INTO stamp_requests 
@@ -362,7 +335,6 @@ class StampMeDatabase:
             return request_id
     
     async def get_pending_requests(self, merchant_id: int):
-        """Get pending stamp requests for merchant"""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch('''
                 SELECT sr.*, c.name as campaign_name, u.username, u.first_name,
@@ -377,9 +349,7 @@ class StampMeDatabase:
             return [dict(row) for row in rows]
     
     async def approve_stamp_request(self, request_id: int):
-        """Approve stamp request and add stamp"""
         async with self.pool.acquire() as conn:
-            # Get request
             request = await conn.fetchrow(
                 'SELECT * FROM stamp_requests WHERE id = $1 AND status = $2',
                 request_id, 'pending'
@@ -388,7 +358,6 @@ class StampMeDatabase:
             if not request:
                 return None
             
-            # Add stamp to enrollment
             new_stamps = await conn.fetchval('''
                 UPDATE enrollments 
                 SET stamps = stamps + 1, last_stamp_at = NOW()
@@ -396,11 +365,7 @@ class StampMeDatabase:
                 RETURNING stamps
             ''', request['enrollment_id'])
             
-            # Get campaign to check completion
-            campaign = await conn.fetchrow(
-                'SELECT * FROM campaigns WHERE id = $1',
-                request['campaign_id']
-            )
+            campaign = await conn.fetchrow('SELECT * FROM campaigns WHERE id = $1', request['campaign_id'])
             
             completed = new_stamps >= campaign['stamps_needed']
             
@@ -411,36 +376,22 @@ class StampMeDatabase:
                     WHERE id = $1
                 ''', request['enrollment_id'])
                 
-                await conn.execute(
-                    'UPDATE campaigns SET total_completions = total_completions + 1 WHERE id = $1',
-                    request['campaign_id']
-                )
-                
-                await conn.execute(
-                    'UPDATE users SET total_rewards_claimed = total_rewards_claimed + 1 WHERE id = $1',
-                    request['customer_id']
-                )
+                await conn.execute('UPDATE campaigns SET total_completions = total_completions + 1 WHERE id = $1', request['campaign_id'])
+                await conn.execute('UPDATE users SET total_rewards_claimed = total_rewards_claimed + 1 WHERE id = $1', request['customer_id'])
             
-            # Update request status
             await conn.execute('''
                 UPDATE stamp_requests 
                 SET status = 'approved', processed_at = NOW()
                 WHERE id = $1
             ''', request_id)
             
-            # Log transaction
             await conn.execute('''
                 INSERT INTO transactions (enrollment_id, merchant_id, action_type, stamps_change)
                 VALUES ($1, $2, 'stamp_added', 1)
             ''', request['enrollment_id'], request['merchant_id'])
             
-            # Update user stats
-            await conn.execute(
-                'UPDATE users SET total_stamps_earned = total_stamps_earned + 1 WHERE id = $1',
-                request['customer_id']
-            )
+            await conn.execute('UPDATE users SET total_stamps_earned = total_stamps_earned + 1 WHERE id = $1', request['customer_id'])
             
-            # Update daily stats
             await conn.execute('''
                 INSERT INTO daily_stats (merchant_id, date, visits, stamps_given)
                 VALUES ($1, CURRENT_DATE, 1, 1)
@@ -457,7 +408,6 @@ class StampMeDatabase:
             }
     
     async def reject_stamp_request(self, request_id: int, reason: str = None):
-        """Reject stamp request"""
         async with self.pool.acquire() as conn:
             request = await conn.fetchrow(
                 'SELECT * FROM stamp_requests WHERE id = $1 AND status = $2',
@@ -476,7 +426,6 @@ class StampMeDatabase:
             return dict(request)
     
     async def get_pending_count(self, merchant_id: int) -> int:
-        """Get count of pending requests"""
         async with self.pool.acquire() as conn:
             count = await conn.fetchval('''
                 SELECT COUNT(*) FROM stamp_requests 
@@ -484,21 +433,9 @@ class StampMeDatabase:
             ''', merchant_id)
             return count or 0
     
-    # ==================== RATING & FEEDBACK ====================
-    
-    async def save_customer_rating(self, enrollment_id: int, rating: int, feedback: str = None):
-        """Save customer rating"""
-        async with self.pool.acquire() as conn:
-            await conn.execute('''
-                UPDATE enrollments 
-                SET rating = $2, feedback = $3
-                WHERE id = $1
-            ''', enrollment_id, rating, feedback)
-    
     # ==================== NOTIFICATIONS ====================
     
     async def queue_notification(self, user_id: int, message: str):
-        """Queue a notification"""
         async with self.pool.acquire() as conn:
             await conn.execute('''
                 INSERT INTO notifications (user_id, message)
@@ -506,7 +443,6 @@ class StampMeDatabase:
             ''', user_id, message)
     
     async def get_pending_notifications(self, limit: int = 50):
-        """Get pending notifications"""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch('''
                 SELECT * FROM notifications 
@@ -517,17 +453,12 @@ class StampMeDatabase:
             return [dict(row) for row in rows]
     
     async def mark_notification_sent(self, notification_id: int):
-        """Mark notification as sent"""
         async with self.pool.acquire() as conn:
-            await conn.execute(
-                'UPDATE notifications SET sent = TRUE WHERE id = $1',
-                notification_id
-            )
+            await conn.execute('UPDATE notifications SET sent = TRUE WHERE id = $1', notification_id)
     
     # ==================== ANALYTICS ====================
     
-    async def get_daily_stats(self, merchant_id: int, date: str = None):
-        """Get daily stats for merchant"""
+    async def get_daily_stats(self, merchant_id: int, date = None):
         async with self.pool.acquire() as conn:
             if not date:
                 date = datetime.now().date()
@@ -543,7 +474,6 @@ class StampMeDatabase:
             }
     
     async def get_merchant_settings(self, merchant_id: int):
-        """Get merchant settings"""
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow('''
                 SELECT * FROM merchant_settings WHERE merchant_id = $1
@@ -560,7 +490,6 @@ class StampMeDatabase:
             return dict(row)
     
     async def update_merchant_settings(self, merchant_id: int, **kwargs):
-        """Update merchant settings"""
         async with self.pool.acquire() as conn:
             set_clauses = []
             values = []
