@@ -9,7 +9,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Callb
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from database import StampMeDatabase
+from database_complete import StampMeDatabase
 
 # Configuration
 TOKEN = os.getenv("BOT_TOKEN")
@@ -850,3 +850,4 @@ if __name__ == "__main__":
         print(f"\n❌ Fatal error: {e}")
         import traceback
         traceback.print_exc()
+
