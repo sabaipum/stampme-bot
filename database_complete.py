@@ -13,143 +13,8 @@ class StampMeDatabase:
             max_size=10,
             command_timeout=60
         )
-        await self.create_all_tables()
-        print("✅ Database connected and tables created")
-    
-    async def create_all_tables(self):
-        async with self.pool.acquire() as conn:
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    id BIGINT PRIMARY KEY,
-                    username TEXT,
-                    first_name TEXT,
-                    user_type TEXT DEFAULT 'customer',
-                    merchant_approved BOOLEAN DEFAULT FALSE,
-                    merchant_approved_at TIMESTAMP,
-                    merchant_approved_by BIGINT,
-                    total_stamps_earned INTEGER DEFAULT 0,
-                    total_rewards_claimed INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT NOW(),
-                    last_active TIMESTAMP DEFAULT NOW(),
-                    CHECK (user_type IN ('customer', 'merchant', 'admin'))
-                )
-            ''')
-            
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS campaigns (
-                    id SERIAL PRIMARY KEY,
-                    merchant_id BIGINT REFERENCES users(id),
-                    name TEXT NOT NULL,
-                    description TEXT,
-                    stamps_needed INTEGER NOT NULL,
-                    reward_description TEXT,
-                    expires_at TIMESTAMP,
-                    active BOOLEAN DEFAULT TRUE,
-                    total_joins INTEGER DEFAULT 0,
-                    total_completions INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT NOW()
-                )
-            ''')
-            
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS reward_tiers (
-                    id SERIAL PRIMARY KEY,
-                    campaign_id INTEGER REFERENCES campaigns(id) ON DELETE CASCADE,
-                    stamps_required INTEGER NOT NULL,
-                    reward_name TEXT NOT NULL,
-                    reward_description TEXT
-                )
-            ''')
-            
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS enrollments (
-                    id SERIAL PRIMARY KEY,
-                    campaign_id INTEGER REFERENCES campaigns(id) ON DELETE CASCADE,
-                    customer_id BIGINT REFERENCES users(id),
-                    stamps INTEGER DEFAULT 0,
-                    joined_at TIMESTAMP DEFAULT NOW(),
-                    last_stamp_at TIMESTAMP,
-                    completed BOOLEAN DEFAULT FALSE,
-                    completed_at TIMESTAMP,
-                    rating INTEGER,
-                    feedback TEXT,
-                    UNIQUE(campaign_id, customer_id)
-                )
-            ''')
-            
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS stamp_requests (
-                    id SERIAL PRIMARY KEY,
-                    campaign_id INTEGER REFERENCES campaigns(id) ON DELETE CASCADE,
-                    customer_id BIGINT REFERENCES users(id),
-                    merchant_id BIGINT REFERENCES users(id),
-                    enrollment_id INTEGER REFERENCES enrollments(id),
-                    status TEXT DEFAULT 'pending',
-                    customer_message TEXT,
-                    rejection_reason TEXT,
-                    created_at TIMESTAMP DEFAULT NOW(),
-                    processed_at TIMESTAMP,
-                    CHECK (status IN ('pending', 'approved', 'rejected'))
-                )
-            ''')
-            
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS transactions (
-                    id SERIAL PRIMARY KEY,
-                    enrollment_id INTEGER REFERENCES enrollments(id),
-                    merchant_id BIGINT,
-                    action_type TEXT,
-                    stamps_change INTEGER DEFAULT 1,
-                    created_at TIMESTAMP DEFAULT NOW()
-                )
-            ''')
-            
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS referrals (
-                    id SERIAL PRIMARY KEY,
-                    referrer_id BIGINT REFERENCES users(id),
-                    referred_id BIGINT REFERENCES users(id),
-                    campaign_id INTEGER REFERENCES campaigns(id),
-                    bonus_given BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP DEFAULT NOW()
-                )
-            ''')
-            
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS merchant_settings (
-                    merchant_id BIGINT PRIMARY KEY REFERENCES users(id),
-                    require_approval BOOLEAN DEFAULT TRUE,
-                    auto_approve BOOLEAN DEFAULT FALSE,
-                    daily_summary_enabled BOOLEAN DEFAULT TRUE,
-                    notification_hour INTEGER DEFAULT 18,
-                    business_name TEXT,
-                    business_type TEXT,
-                    location TEXT
-                )
-            ''')
-            
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS notifications (
-                    id SERIAL PRIMARY KEY,
-                    user_id BIGINT,
-                    message TEXT,
-                    sent BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP DEFAULT NOW()
-                )
-            ''')
-            
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS daily_stats (
-                    id SERIAL PRIMARY KEY,
-                    merchant_id BIGINT REFERENCES users(id),
-                    date DATE DEFAULT CURRENT_DATE,
-                    visits INTEGER DEFAULT 0,
-                    new_customers INTEGER DEFAULT 0,
-                    stamps_given INTEGER DEFAULT 0,
-                    rewards_claimed INTEGER DEFAULT 0,
-                    UNIQUE(merchant_id, date)
-                )
-            ''')
+        # Don't create tables here - they're already migrated
+        print("✅ Database connected")
     
     async def close(self):
         if self.pool:
@@ -315,7 +180,6 @@ class StampMeDatabase:
             return request_id
     
     async def get_pending_requests(self, merchant_id: int):
-        """FIXED: Proper table aliases"""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch('''
                 SELECT sr.id, sr.campaign_id, sr.customer_id, sr.merchant_id, 
