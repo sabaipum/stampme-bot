@@ -295,3 +295,617 @@ Built with ❤️ for businesses and their customers
 💙 Powered by StampMe
 """
     # ============================================
+
+    # StampMe Bot - Complete Testing & User Guide
+
+## 🔧 STEP 0: Fix Bot Conflict (REQUIRED!)
+
+**Before any testing, you MUST clear the webhook:**
+
+1. Go to Render → Your Service → Environment
+2. Copy your `BOT_TOKEN` value
+3. Visit this URL in browser: `https://api.telegram.org/bot<YOUR_TOKEN>/deleteWebhook?drop_pending_updates=true`
+4. You should see: `{"ok":true,"result":true}`
+5. Wait 30 seconds
+6. Restart your Render service
+
+**Without this step, NOTHING will work!**
+
+---
+
+## 👥 Testing Accounts You'll Need
+
+1. **Your Personal Account** (Admin & Merchant)
+2. **Test Account 1** (Customer)
+3. **Test Account 2** (Another merchant - optional)
+
+---
+
+## 🎯 WORKFLOW 1: Admin Approves Merchant
+
+### Step 1: Set Admin ID
+In Render environment variables, set:
+```
+ADMIN_IDS=YOUR_TELEGRAM_USER_ID
+```
+
+**Find your Telegram User ID:**
+- Message @userinfobot on Telegram
+- It will reply with your ID (e.g., `123456789`)
+
+### Step 2: Request Merchant Access
+**Using Test Account or Your Account:**
+
+1. Open bot: `@your_bot_username`
+2. Send: `/start`
+3. Click: **"🏪 Become a Merchant"** button
+4. You'll see: "⏳ Request Sent! Your merchant application is being reviewed..."
+
+### Step 3: Admin Approves
+**Using Your Admin Account:**
+
+1. You'll receive notification: "🏪 New merchant request from [name]"
+2. Send: `/admin`
+3. You'll see list of pending merchants
+4. Click on the merchant name to approve
+5. They'll get notified: "🎉 Congratulations! Your merchant account has been approved!"
+
+**Result:** Merchant can now create campaigns
+
+---
+
+## 🏪 WORKFLOW 2: Merchant Creates Campaign
+
+**Using Approved Merchant Account:**
+
+### Step 1: Create Campaign
+```
+/newcampaign Coffee Rewards 5
+```
+
+Response:
+```
+✅ Campaign Created!
+
+📋 Coffee Rewards
+🎯 5 stamps needed
+🆔 Campaign ID: 1
+
+👉 Get your QR code below!
+[📱 Get QR Code] button
+```
+
+### Step 2: Get QR Code
+- Click the **"📱 Get QR Code"** button, OR
+- Send: `/getqr 1`
+
+You'll receive:
+- QR code image
+- Link: `https://t.me/your_bot?start=join_1`
+
+### Step 3: Add Rewards (Optional)
+```
+/addreward 1 3 Free Coffee
+/addreward 1 5 Free Meal
+```
+
+### Step 4: View Campaigns
+```
+/mycampaigns
+```
+
+Shows:
+```
+📋 Your Campaigns
+
+Coffee Rewards (ID: 1)
+  🎯 5 stamps
+  👥 0 customers
+  ✅ 0 completed
+```
+
+---
+
+## 👤 WORKFLOW 3: Customer Joins Campaign
+
+**Using Customer Test Account:**
+
+### Step 1: Scan QR Code
+- Click the link from QR code, OR
+- Visit: `https://t.me/your_bot?start=join_1`
+
+Response:
+```
+🎉 Welcome!
+
+You've joined: Coffee Rewards
+
+Collect 5 stamps to earn rewards!
+
+👉 Request your first stamp below!
+[Request Stamp] button
+```
+
+### Step 2: Check Wallet
+```
+/wallet
+```
+
+You'll see:
+- Visual stamp card image
+- Progress: 0/5 stamps
+- [Request Stamp] button
+
+---
+
+## ⭐ WORKFLOW 4: Customer Requests Stamp
+
+**After customer visits store:**
+
+### Customer Side:
+1. Open bot
+2. Send: `/wallet`
+3. Click: **"Request Stamp"** button
+
+Response:
+```
+⏳ Stamp Request Sent!
+
+The merchant will review it soon. You'll get notified!
+```
+
+### Merchant Side:
+Merchant receives notification:
+```
+⏳ New stamp request from [customer name]
+```
+
+---
+
+## ✅ WORKFLOW 5: Merchant Approves Stamp
+
+**Using Merchant Account:**
+
+### Step 1: View Pending Requests
+```
+/pending
+```
+
+OR
+
+```
+/stamp
+```
+
+Shows:
+```
+⏳ Pending Requests (1)
+
+Tap to review:
+[Customer Name - Coffee Rewards (0/5)]
+```
+
+### Step 2: Review Request
+- Click on customer name
+
+Shows:
+```
+👤 Customer Name
+📋 Coffee Rewards
+
+█░░░░░░░░░
+0/5 stamps
+
+Approve or reject?
+[✅ Approve] [❌ Reject]
+```
+
+### Step 3: Approve
+- Click: **"✅ Approve"**
+
+Response to Merchant:
+```
+✅ Approved!
+
+█░░░░░░░░░
+1/5 stamps
+```
+
+Response to Customer:
+```
+⭐ New Stamp!
+
+Coffee Rewards
+█░░░░░░░░░
+Progress: 1/5
+
+🎯 Only 4 more stamps to earn your reward!
+```
+
+---
+
+## 🎉 WORKFLOW 6: Complete Campaign
+
+**Repeat WORKFLOW 4 & 5 until customer reaches 5 stamps**
+
+### When 5th Stamp Approved:
+
+**Customer receives:**
+```
+🎉 REWARD EARNED!
+
+You've completed Coffee Rewards!
+
+█████████
+✅ 5/5 stamps collected
+
+🎁 Show this message at the store to claim your reward!
+```
+
+**Merchant sees:**
+```
+🎉 Approved - Reward Earned!
+
+██████████
+Customer completed the campaign!
+```
+
+---
+
+## 📊 WORKFLOW 7: View Statistics
+
+**Merchant Commands:**
+
+### Dashboard
+```
+/dashboard
+```
+
+Shows:
+```
+📊 Your Dashboard
+
+📆 Today:
+  Visits: 5
+  Stamps given: 5
+
+📈 Overall:
+  Campaigns: 1
+  Customers: 3
+  Rewards: 1
+
+⏳ 2 pending requests
+```
+
+### Campaign Stats
+```
+/stats 1
+```
+
+Shows:
+```
+📊 Campaign Analytics
+
+📋 Coffee Rewards
+🆔 ID: 1
+
+👥 Customers:
+  Total: 3
+  Completed: 1
+  Rate: 33.3%
+
+⭐ Stamps:
+  Total given: 8
+  Needed: 5
+```
+
+---
+
+## 🔗 WORKFLOW 8: Referral System
+
+**Customer shares with friend:**
+
+### Step 1: Get Referral Link
+```
+/share 1
+```
+
+Receives:
+```
+🎁 Share & Earn
+
+Share this link:
+https://t.me/your_bot?start=ref_123456_1
+
+You both get a bonus stamp when they join!
+```
+
+### Step 2: Friend Joins
+Friend clicks link and joins campaign
+
+### Result:
+- Both get 1 bonus stamp
+- Referrer notified: "You got a referral bonus!"
+
+---
+
+## 🎯 WORKFLOW 9: Multi-Tier Rewards
+
+**Merchant adds reward tiers:**
+
+```
+/addreward 1 3 Free Cookie
+/addreward 1 5 Free Coffee
+/addreward 1 10 VIP Card
+```
+
+**When customer joins:**
+```
+🎉 Welcome!
+
+You've joined: Coffee Rewards
+
+🎁 Rewards:
+  • 3 stamps → Free Cookie
+  • 5 stamps → Free Coffee
+  • 10 stamps → VIP Card
+```
+
+---
+
+## 📱 ALL COMMANDS REFERENCE
+
+### Customer Commands
+| Command | Description |
+|---------|-------------|
+| `/start` | Open main menu |
+| `/wallet` | View stamp cards |
+| `/help` | Get help |
+
+### Merchant Commands (After Approval)
+| Command | Description | Example |
+|---------|-------------|---------|
+| `/newcampaign` | Create campaign | `/newcampaign Pizza 8` |
+| `/getqr <id>` | Get QR code | `/getqr 1` |
+| `/mycampaigns` | List campaigns | `/mycampaigns` |
+| `/pending` | View requests | `/pending` |
+| `/stamp` | Same as pending | `/stamp` |
+| `/dashboard` | View stats | `/dashboard` |
+| `/stats <id>` | Campaign analytics | `/stats 1` |
+| `/addreward` | Add reward tier | `/addreward 1 5 Free Coffee` |
+| `/share <id>` | Get referral link | `/share 1` |
+
+### Admin Commands
+| Command | Description |
+|---------|-------------|
+| `/admin` | View pending merchants |
+
+---
+
+## 🧪 COMPLETE TEST SCRIPT
+
+Follow this exact sequence to test everything:
+
+### 1. Setup (5 minutes)
+```
+✓ Set ADMIN_IDS in Render
+✓ Clear webhook (URL method)
+✓ Restart service
+✓ Wait 30 seconds
+```
+
+### 2. Admin Flow (2 minutes)
+```
+Account: Your admin account
+
+✓ /start
+✓ Click "Become a Merchant"
+✓ /admin (should see your request)
+✓ Click your name to approve
+✓ Confirm approval message
+```
+
+### 3. Merchant Flow (5 minutes)
+```
+Account: Your merchant account (now approved)
+
+✓ /start (should see merchant dashboard)
+✓ /newcampaign TestCafe 5
+✓ /getqr 1 (save QR code)
+✓ /addreward 1 3 Free Coffee
+✓ /mycampaigns (verify campaign exists)
+✓ /dashboard (check stats)
+```
+
+### 4. Customer Flow (5 minutes)
+```
+Account: Test customer account
+
+✓ Click QR link or visit: https://t.me/bot?start=join_1
+✓ Verify welcome message
+✓ /wallet (check card appears)
+✓ Click "Request Stamp"
+✓ Verify confirmation message
+```
+
+### 5. Approval Flow (3 minutes)
+```
+Account: Switch back to merchant
+
+✓ Check for notification
+✓ /pending (see request)
+✓ Click customer name
+✓ Click "✅ Approve"
+✓ Verify approval message
+
+Account: Switch to customer
+✓ Check for stamp notification
+✓ /wallet (verify stamp added)
+```
+
+### 6. Completion Flow (5 minutes)
+```
+Repeat steps 4-5 four more times until 5/5 stamps
+
+Final approval should show:
+Merchant: "🎉 Approved - Reward Earned!"
+Customer: "🎉 REWARD EARNED!"
+```
+
+### 7. Analytics (2 minutes)
+```
+Account: Merchant
+
+✓ /dashboard (verify updated stats)
+✓ /stats 1 (check campaign details)
+✓ Verify completion count = 1
+```
+
+### 8. Referral Test (3 minutes)
+```
+Account: Customer
+
+✓ /share 1 (get link)
+
+Account: Another test customer
+✓ Click referral link
+✓ Verify both got bonus stamp
+```
+
+---
+
+## 🐛 TROUBLESHOOTING
+
+### Bot Not Responding
+**Problem:** Commands don't work
+**Fix:** Clear webhook: `https://api.telegram.org/bot<TOKEN>/deleteWebhook?drop_pending_updates=true`
+
+### "Error processing request"
+**Problem:** Buttons crash
+**Fix:** Check Render logs for specific error
+
+### Commands Show Usage Only
+**Problem:** Commands work but don't execute
+**Fix:** Check database is connected (see Render logs)
+
+### Inline Buttons Disappear
+**Problem:** Buttons vanish when clicked
+**Fix:** This is fixed in latest code - update `button_callback` function
+
+### "Campaign not found"
+**Problem:** QR link doesn't work
+**Fix:** Campaign ID might be wrong - use `/mycampaigns` to verify
+
+### "Merchant approval required"
+**Problem:** Can't create campaigns
+**Fix:** Admin must approve via `/admin` command
+
+---
+
+## 📊 SUCCESS METRICS
+
+After testing, verify:
+- ✅ Merchants can be approved
+- ✅ Campaigns can be created
+- ✅ QR codes work
+- ✅ Customers can join
+- ✅ Stamp requests work
+- ✅ Approvals work
+- ✅ Notifications sent
+- ✅ Rewards tracked
+- ✅ Dashboard shows correct stats
+- ✅ Wallet displays cards
+- ✅ Referrals work
+
+---
+
+## 🎬 VIDEO TEST SCENARIO
+
+**Title:** "Coffee Shop Loyalty Program"
+
+**Characters:**
+- Admin (You)
+- Merchant: "Joe's Coffee Shop"
+- Customer: "Sarah"
+
+**Script:**
+
+1. **Setup (Admin)**
+   - Approve Joe's Coffee Shop as merchant
+   
+2. **Campaign Creation (Joe)**
+   - Creates "Coffee Lovers" campaign
+   - 5 stamps = Free Coffee
+   - Generates QR code
+   - Prints and displays at counter
+
+3. **Customer Journey (Sarah)**
+   - Day 1: Scans QR, joins, orders coffee, requests stamp
+   - Joe approves immediately
+   - Sarah sees: 1/5 stamps
+   
+4. **Repeat Visits**
+   - Day 2-5: Same process
+   
+5. **Reward**
+   - Day 5: Sarah gets 5th stamp
+   - Notification: "REWARD EARNED!"
+   - Shows phone to Joe
+   - Gets free coffee
+
+6. **Referral**
+   - Sarah shares link with friend Tom
+   - Both get bonus stamp
+   - Tom starts collecting
+
+**Result:** Complete end-to-end demonstration
+
+---
+
+## 💡 TIPS FOR TESTING
+
+1. **Use Real Telegram Accounts** - Don't use bot testing environments
+2. **Test on Mobile** - Most users will use phones
+3. **Take Screenshots** - Document each step
+4. **Check Notifications** - Verify they arrive
+5. **Test Edge Cases** - What if user joins twice? Requests stamp twice?
+6. **Time It** - How long does each workflow take?
+7. **Get Feedback** - Ask real users to test
+
+---
+
+## 🚀 GO LIVE CHECKLIST
+
+Before launching:
+- [ ] All workflows tested successfully
+- [ ] Admin approval process working
+- [ ] QR codes generating correctly
+- [ ] Notifications delivering
+- [ ] Database persisting data
+- [ ] No bot conflicts
+- [ ] Error messages are user-friendly
+- [ ] Help documentation ready
+- [ ] Support contact available
+- [ ] Backup strategy in place
+
+---
+
+## 📞 SUPPORT COMMANDS
+
+If users need help:
+```
+/help - Show all commands
+/start - Reset to main menu
+/wallet - View stamp cards
+```
+
+Admin support:
+```
+/admin - Review pending merchants
+Check Render logs for errors
+Monitor database size
+```
+
+---
+
+**Your bot is ready when all workflows complete successfully!** 🎉
