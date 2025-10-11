@@ -777,17 +777,49 @@ async def send_daily_summaries():
 # ==================== MAIN ====================
 
 async def main():
-    """Start the bot"""
+    """Start the bot with automatic conflict resolution"""
     print("🚀 Starting StampMe Bot...")
     
+    # CRITICAL: Stop any existing instances first
+    print("🔄 Clearing any existing connections...")
+    
+    # Try multiple times to clear webhook
+    for attempt in range(3):
+        try:
+            # Create a temporary bot instance just to clear webhook
+            temp_app = ApplicationBuilder().token(TOKEN).build()
+            await temp_app.initialize()
+            
+            # Delete webhook and drop pending updates
+            result = await temp_app.bot.delete_webhook(drop_pending_updates=True)
+            print(f"  ✓ Attempt {attempt + 1}: Webhook cleared - {result}")
+            
+            await temp_app.shutdown()
+            
+            # Wait a bit for Telegram to process
+            await asyncio.sleep(3)
+            break
+            
+        except Exception as e:
+            print(f"  ⚠️  Attempt {attempt + 1} failed: {e}")
+            if attempt < 2:
+                await asyncio.sleep(2)
+            else:
+                print("  ❌ Could not clear webhook automatically")
+                print(f"  📝 Manual fix: Visit https://api.telegram.org/bot{TOKEN[:10]}...{TOKEN[-10:]}/deleteWebhook?drop_pending_updates=true")
+    
+    # Connect to database
     try:
         await db.connect()
     except Exception as e:
         print(f"❌ Database error: {e}")
         return
     
+    # Start health server
     await start_web_server()
     
+    # Build main application
+    print("🤖 Building bot application...")
     app = ApplicationBuilder().token(TOKEN).build()
     
     # Add all command handlers
@@ -797,7 +829,7 @@ async def main():
     app.add_handler(CommandHandler("newcampaign", newcampaign))
     app.add_handler(CommandHandler("getqr", getqr))
     app.add_handler(CommandHandler("pending", pending))
-    app.add_handler(CommandHandler("stamp", stamp_command))  # Alternative to pending
+    app.add_handler(CommandHandler("stamp", stamp_command))
     app.add_handler(CommandHandler("dashboard", dashboard))
     app.add_handler(CommandHandler("mycampaigns", mycampaigns))
     app.add_handler(CommandHandler("addreward", addreward))
@@ -806,40 +838,82 @@ async def main():
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CallbackQueryHandler(button_callback))
     
+    # Initialize
     await app.initialize()
     await app.start()
     
-    try:
-        await app.bot.delete_webhook(drop_pending_updates=True)
-        await asyncio.sleep(2)
-        print("✅ Webhook cleared")
-    except Exception as e:
-        print(f"⚠️ Webhook warning: {e}")
+    # Start polling with retries
+    print("📡 Starting to poll for updates...")
+    max_retries = 5
+    retry_count = 0
     
-    try:
-        await app.updater.start_polling(
-            drop_pending_updates=True,
-            allowed_updates=Update.ALL_TYPES,
-            timeout=30
-        )
-        print("✅ Bot is running!")
-        print(f"📱 Bot: @{BOT_USERNAME}")
-        print(f"🔧 Admin IDs: {ADMIN_IDS}")
-    except Exception as e:
-        print(f"❌ Polling error: {e}")
-        raise
+    while retry_count < max_retries:
+        try:
+            await app.updater.start_polling(
+                drop_pending_updates=True,
+                allowed_updates=Update.ALL_TYPES,
+                timeout=30,
+                bootstrap_retries=3
+            )
+            
+            print("✅ Bot is running successfully!")
+            print(f"📱 Bot: @{BOT_USERNAME}")
+            print(f"🔧 Admin IDs: {ADMIN_IDS}")
+            
+            # Start background tasks
+            asyncio.create_task(send_notifications(app))
+            print("✅ Notification sender started")
+            
+            # Schedule daily summaries
+            scheduler.add_job(send_daily_summaries, 'cron', hour=18, minute=0)
+            scheduler.start()
+            print("✅ Daily summary scheduler started")
+            
+            # Keep running
+            await asyncio.Event().wait()
+            
+        except Exception as e:
+            error_msg = str(e)
+            if "Conflict" in error_msg:
+                retry_count += 1
+                print(f"\n⚠️  Conflict detected (attempt {retry_count}/{max_retries})")
+                print(f"Waiting 10 seconds before retry...")
+                
+                # Stop the updater
+                try:
+                    await app.updater.stop()
+                    await app.stop()
+                except:
+                    pass
+                
+                # Wait longer
+                await asyncio.sleep(10)
+                
+                # Try to clear webhook again
+                try:
+                    await app.bot.delete_webhook(drop_pending_updates=True)
+                    print("  ✓ Webhook cleared, retrying...")
+                except:
+                    pass
+                
+                # Restart app
+                await app.start()
+                
+            else:
+                print(f"❌ Polling error: {e}")
+                raise
     
-    # Start background tasks
-    asyncio.create_task(send_notifications(app))
-    print("✅ Notification sender started")
-    
-    # Schedule daily summaries
-    scheduler.add_job(send_daily_summaries, 'cron', hour=18, minute=0)
-    scheduler.start()
-    print("✅ Daily summary scheduler started (6 PM)")
-    
-    # Keep running
-    await asyncio.Event().wait()
+    if retry_count >= max_retries:
+        print("\n❌ CRITICAL ERROR: Could not start bot after multiple attempts")
+        print("\n🔧 MANUAL FIX REQUIRED:")
+        print(f"1. Visit: https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true")
+        print("2. Check for other running instances:")
+        print("   - On your local computer")
+        print("   - On other hosting services")
+        print("   - Old Render deployments")
+        print("3. Wait 2 minutes after stopping all instances")
+        print("4. Restart this service")
+
 
 if __name__ == "__main__":
     try:
@@ -850,4 +924,5 @@ if __name__ == "__main__":
         print(f"\n❌ Fatal error: {e}")
         import traceback
         traceback.print_exc()
+
 
