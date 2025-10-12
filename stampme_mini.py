@@ -969,111 +969,110 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_id = query.from_user.id
     
-    print(f"Button clicked: {data} by user {user_id}")  # Debug log
+    print(f"Button clicked: {data} by user {user_id}")
     
     try:
         # Show wallet
         if data == "show_wallet":
-            try:
-                # Don't delete message, just send wallet
-                enrollments = await db.get_customer_enrollments(user_id)
-                
-                if not enrollments:
-                    await query.message.reply_text(
-                        "💳 *Your Wallet is Empty*\n\nScan a QR code at any participating store!" + BRAND_FOOTER,
+            enrollments = await db.get_customer_enrollments(user_id)
+            
+            if not enrollments:
+                await query.message.reply_text(
+                    "💳 *Your Wallet is Empty*\n\n"
+                    "You haven't joined any loyalty programs yet!\n\n"
+                    "Visit any store with StampMe and scan their QR code!" + BRAND_FOOTER,
+                    parse_mode="Markdown"
+                )
+                return
+            
+            await query.message.reply_text(
+                f"💳 *Your Stamp Cards* ({len(enrollments)})\n\n"
+                "Here are your active loyalty programs:" + BRAND_FOOTER,
+                parse_mode="Markdown"
+            )
+            
+            for e in enrollments:
+                try:
+                    img = generate_card_image(e['name'], e['stamps'], e['stamps_needed'])
+                    bio = io.BytesIO()
+                    img.save(bio, 'PNG')
+                    bio.seek(0)
+                    
+                    progress_bar = generate_progress_bar(e['stamps'], e['stamps_needed'])
+                    
+                    if e['completed']:
+                        caption = f"🎉 *{e['name']}*\n\n{progress_bar}\n✅ REWARD READY!"
+                    else:
+                        remaining = e['stamps_needed'] - e['stamps']
+                        caption = f"📋 *{e['name']}*\n\n{progress_bar}\n{e['stamps']}/{e['stamps_needed']} stamps\nCollect {remaining} more!"
+                    
+                    keyboard = []
+                    if not e['completed']:
+                        keyboard.append([InlineKeyboardButton("⭐ Request Stamp", callback_data=f"request_{e['campaign_id']}")])
+                    
+                    await query.message.reply_photo(
+                        photo=bio,
+                        caption=caption + BRAND_FOOTER,
+                        reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,
                         parse_mode="Markdown"
                     )
-                    return
-                
-                # Send wallet cards
-                for e in enrollments:
-                    try:
-                        img = generate_card_image(e['name'], e['stamps'], e['stamps_needed'])
-                        bio = io.BytesIO()
-                        img.save(bio, 'PNG')
-                        bio.seek(0)
-                        
-                        progress_bar = generate_progress_bar(e['stamps'], e['stamps_needed'])
-                        
-                        if e['completed']:
-                            caption = f"🎉 *{e['name']}*\n\n{progress_bar}\n✅ COMPLETED!"
-                        else:
-                            caption = f"📋 *{e['name']}*\n\n{progress_bar}\n{e['stamps']}/{e['stamps_needed']} stamps"
-                        
-                        keyboard = []
-                        if not e['completed']:
-                            keyboard.append([InlineKeyboardButton("Request Stamp", callback_data=f"request_{e['campaign_id']}")])
-                        
-                        await query.message.reply_photo(
-                            photo=bio,
-                            caption=caption + BRAND_FOOTER,
-                            reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,
-                            parse_mode="Markdown"
-                        )
-                    except Exception as e:
-                        print(f"Error showing card: {e}")
-                        continue
-            
-            except Exception as e:
-                print(f"Error in show_wallet: {e}")
-                await query.message.reply_text("Error loading wallet. Please try /wallet command." + BRAND_FOOTER)
+                except Exception as e:
+                    print(f"Error showing card: {e}")
+                    continue
             return
         
         # Become merchant
         elif data == "request_merchant":
-            try:
-                await db.request_merchant_access(user_id)
-                
-                # Notify admins
-                for admin_id in ADMIN_IDS:
-                    try:
-                        await db.queue_notification(
-                            admin_id,
-                            f"🏪 New merchant request from {query.from_user.first_name} (@{query.from_user.username or 'no username'})"
-                        )
-                    except:
-                        pass
-                
-                await query.edit_message_text(
-                    "⏳ *Request Sent!*\n\nYour merchant application is being reviewed. You'll be notified within 24 hours!" + BRAND_FOOTER,
-                    parse_mode="Markdown"
-                )
-            except Exception as e:
-                print(f"Error requesting merchant: {e}")
-                await query.message.reply_text("Request submitted! You'll be notified when approved." + BRAND_FOOTER)
+            await db.request_merchant_access(user_id)
+            
+            for admin_id in ADMIN_IDS:
+                try:
+                    await db.queue_notification(
+                        admin_id,
+                        f"🏪 New merchant request from {query.from_user.first_name} (@{query.from_user.username or 'no username'})"
+                    )
+                except:
+                    pass
+            
+            await query.edit_message_text(
+                "⏳ *Request Sent!*\n\n"
+                "Your merchant application is being reviewed.\n\n"
+                "You'll be notified within 24 hours!" + BRAND_FOOTER,
+                parse_mode="Markdown"
+            )
             return
         
         # Request stamp
-elif data.startswith("request_"):
-    campaign_id = int(data.split("_")[1])
-    campaign = await db.get_campaign(campaign_id)
-    
-    if not campaign:
-        await query.edit_message_text("❌ Program no longer available" + BRAND_FOOTER)
-        return
-    
-    enrollment = await db.get_enrollment(campaign_id, user_id)
-    
-    if not enrollment:
-        await query.edit_message_text("❌ Please join this program first" + BRAND_FOOTER)
-        return
-    
-    request_id = await db.create_stamp_request(
-        campaign_id, user_id, campaign['merchant_id'], enrollment['id']
-    )
-    
-    await db.queue_notification(
-        campaign['merchant_id'],
-        f"⏳ New stamp request from {query.from_user.first_name}"
-    )
-    
-    await query.edit_message_text(
-        "✅ *Request Sent!*\n\n"
-        "Your stamp request has been sent to the merchant.\n\n"
-        "⏱️ They'll review it shortly and you'll get a notification!" + BRAND_FOOTER,
-        parse_mode="Markdown"
-    )
-    return
+        elif data.startswith("request_"):
+            campaign_id = int(data.split("_")[1])
+            campaign = await db.get_campaign(campaign_id)
+            
+            if not campaign:
+                await query.edit_message_text("❌ Program no longer available" + BRAND_FOOTER)
+                return
+            
+            enrollment = await db.get_enrollment(campaign_id, user_id)
+            
+            if not enrollment:
+                await query.edit_message_text("❌ Please join this program first" + BRAND_FOOTER)
+                return
+            
+            request_id = await db.create_stamp_request(
+                campaign_id, user_id, campaign['merchant_id'], enrollment['id']
+            )
+            
+            await db.queue_notification(
+                campaign['merchant_id'],
+                f"⏳ New stamp request from {query.from_user.first_name}"
+            )
+            
+            await query.edit_message_text(
+                "✅ *Request Sent!*\n\n"
+                "Your stamp request has been sent to the merchant.\n\n"
+                "⏱️ They'll review it shortly!" + BRAND_FOOTER,
+                parse_mode="Markdown"
+            )
+            return
         
         # View request details
         elif data.startswith("viewreq_"):
@@ -1129,16 +1128,17 @@ elif data.startswith("request_"):
             if result['completed']:
                 await db.queue_notification(
                     result['customer_id'],
-                    f"🎉 *REWARD EARNED!*\n\nYou completed {campaign['name']}!\n\nShow this to claim your reward!" + BRAND_FOOTER
+                    f"🎉 *REWARD EARNED!*\n\nYou completed {campaign['name']}!" + BRAND_FOOTER
                 )
                 await query.edit_message_text(
                     f"🎉 *Approved - Reward Earned!*\n\n{progress_bar}\n\nCustomer completed!" + BRAND_FOOTER,
                     parse_mode="Markdown"
                 )
             else:
+                remaining = campaign['stamps_needed'] - result['new_stamps']
                 await db.queue_notification(
                     result['customer_id'],
-                    f"⭐ *New Stamp!*\n\n{campaign['name']}\n{progress_bar}\n{result['new_stamps']}/{campaign['stamps_needed']}" + BRAND_FOOTER
+                    f"⭐ *New Stamp!*\n\n{campaign['name']}\n{progress_bar}\n{result['new_stamps']}/{campaign['stamps_needed']}\nJust {remaining} more!" + BRAND_FOOTER
                 )
                 await query.edit_message_text(
                     f"✅ *Approved!*\n\n{progress_bar}\n{result['new_stamps']}/{campaign['stamps_needed']} stamps" + BRAND_FOOTER,
@@ -1178,9 +1178,6 @@ elif data.startswith("request_"):
         
         # Show pending
         elif data == "show_pending":
-            # Send new message instead of editing
-            await query.message.reply_text("Loading pending requests..." + BRAND_FOOTER)
-            
             requests = await db.get_pending_requests(user_id)
             
             if not requests:
@@ -1209,7 +1206,6 @@ elif data.startswith("request_"):
         
         # Merchant dashboard
         elif data == "merchant_dashboard":
-            # Send new message
             if not await db.is_merchant_approved(user_id):
                 await query.message.reply_text("Merchant approval required" + BRAND_FOOTER)
                 return
@@ -1224,7 +1220,7 @@ elif data.startswith("request_"):
             message = (
                 f"📊 *Your Dashboard*\n\n"
                 f"📆 *Today:*\n  Visits: {today_stats['visits']}\n  Stamps: {today_stats['stamps_given']}\n\n"
-                f"📈 *Overall:*\n  Campaigns: {len(campaigns)}\n  Customers: {total_customers}\n  Rewards: {total_completions}\n"
+                f"📈 *Overall:*\n  Programs: {len(campaigns)}\n  Customers: {total_customers}\n  Rewards: {total_completions}\n"
             )
             
             if pending_count > 0:
@@ -1232,7 +1228,7 @@ elif data.startswith("request_"):
             
             keyboard = [
                 [InlineKeyboardButton("⏳ Pending", callback_data="show_pending")],
-                [InlineKeyboardButton("📋 Campaigns", callback_data="my_campaigns")]
+                [InlineKeyboardButton("📋 My Programs", callback_data="my_campaigns")]
             ]
             
             await query.message.reply_text(
@@ -1248,12 +1244,12 @@ elif data.startswith("request_"):
             
             if not campaigns:
                 await query.message.reply_text(
-                    "📭 *No campaigns yet*\n\nUse: `/newcampaign <n> <stamps>`" + BRAND_FOOTER,
+                    "📭 *No programs yet*\n\nCreate one:\n`/newcampaign [Name] [Stamps]`" + BRAND_FOOTER,
                     parse_mode="Markdown"
                 )
                 return
             
-            message = "📋 *Your Campaigns*\n\n"
+            message = "📋 *Your Programs*\n\n"
             for c in campaigns:
                 message += f"*{c['name']}* (ID: `{c['id']}`)\n"
                 message += f"  🎯 {c['stamps_needed']} stamps\n"
@@ -1283,7 +1279,7 @@ elif data.startswith("request_"):
             
             await query.message.reply_photo(
                 photo=bio,
-                caption=f"📱 *QR Code: {campaign['name']}*\n\n🎯 {campaign['stamps_needed']} stamps\n\nLink: `{link}`" + BRAND_FOOTER,
+                caption=f"📱 *QR Code: {campaign['name']}*\n\n🎯 {campaign['stamps_needed']} stamps\n\nDisplay at your store!\n\nLink: `{link}`" + BRAND_FOOTER,
                 parse_mode="Markdown"
             )
             return
@@ -1314,6 +1310,79 @@ elif data.startswith("request_"):
             )
             return
         
+        # Give stamp callback
+        elif data.startswith("givestamp_"):
+            parts = data.split("_")
+            campaign_id = int(parts[1])
+            customer_id = int(parts[2])
+            
+            campaign = await db.get_campaign(campaign_id)
+            enrollment = await db.get_enrollment(campaign_id, customer_id)
+            
+            async with db.pool.acquire() as conn:
+                new_stamps = enrollment['stamps'] + 1
+                completed = new_stamps >= campaign['stamps_needed']
+                
+                await conn.execute('''
+                    UPDATE enrollments 
+                    SET stamps = $1, completed = $2, updated_at = NOW()
+                    WHERE id = $3
+                ''', new_stamps, completed, enrollment['id'])
+                
+                await conn.execute('''
+                    INSERT INTO stamp_requests (campaign_id, customer_id, merchant_id, enrollment_id, status, created_at, processed_at)
+                    VALUES ($1, $2, $3, $4, 'approved', NOW(), NOW())
+                ''', campaign_id, customer_id, user_id, enrollment['id'])
+            
+            progress_bar = generate_progress_bar(new_stamps, campaign['stamps_needed'])
+            
+            if completed:
+                await query.edit_message_text(
+                    f"🎉 *Stamp Added - Reward Earned!*\n\n{progress_bar}\n✅ {new_stamps}/{campaign['stamps_needed']}" + BRAND_FOOTER,
+                    parse_mode="Markdown"
+                )
+                await db.queue_notification(
+                    customer_id,
+                    f"🎉 *REWARD EARNED!*\n\nYou completed {campaign['name']}!" + BRAND_FOOTER
+                )
+            else:
+                remaining = campaign['stamps_needed'] - new_stamps
+                await query.edit_message_text(
+                    f"✅ *Stamp Added!*\n\n{progress_bar}\n{new_stamps}/{campaign['stamps_needed']}\nJust {remaining} more!" + BRAND_FOOTER,
+                    parse_mode="Markdown"
+                )
+                await db.queue_notification(
+                    customer_id,
+                    f"⭐ *New Stamp!*\n\n{campaign['name']}\n{progress_bar}\n{new_stamps}/{campaign['stamps_needed']}" + BRAND_FOOTER
+                )
+            return
+        
+        # Clear reward callback
+        elif data.startswith("clearreward_"):
+            parts = data.split("_")
+            campaign_id = int(parts[1])
+            customer_id = int(parts[2])
+            
+            campaign = await db.get_campaign(campaign_id)
+            
+            async with db.pool.acquire() as conn:
+                await conn.execute('''
+                    UPDATE enrollments 
+                    SET stamps = 0, completed = FALSE, updated_at = NOW()
+                    WHERE campaign_id = $1 AND customer_id = $2
+                ''', campaign_id, customer_id)
+            
+            await query.edit_message_text(
+                f"✅ *Reward Given!*\n\nStamps reset for {campaign['name']}" + BRAND_FOOTER,
+                parse_mode="Markdown"
+            )
+            
+            await db.queue_notification(
+                customer_id,
+                f"🎉 *Reward Claimed!*\n\n{campaign['name']}\n\nYour stamps have been reset!" + BRAND_FOOTER
+            )
+            return
+        
         # Admin approve
         elif data.startswith("admin_approve_"):
             if user_id not in ADMIN_IDS:
@@ -1324,99 +1393,11 @@ elif data.startswith("request_"):
             
             await db.queue_notification(
                 merchant_id,
-                "🎉 *Congratulations!*\n\nYour merchant account has been approved!\n\nUse /newcampaign to get started!" + BRAND_FOOTER
+                "🎉 *Congratulations!*\n\nYour merchant account has been approved!" + BRAND_FOOTER
             )
             
             await query.edit_message_text(f"✅ Merchant approved!" + BRAND_FOOTER, parse_mode="Markdown")
             return
-       # Give stamp callback
-elif data.startswith("givestamp_"):
-    parts = data.split("_")
-    campaign_id = int(parts[1])
-    customer_id = int(parts[2])
-    
-    campaign = await db.get_campaign(campaign_id)
-    enrollment = await db.get_enrollment(campaign_id, customer_id)
-    
-    async with db.pool.acquire() as conn:
-        new_stamps = enrollment['stamps'] + 1
-        completed = new_stamps >= campaign['stamps_needed']
-        
-        await conn.execute('''
-            UPDATE enrollments 
-            SET stamps = $1, completed = $2, updated_at = NOW()
-            WHERE id = $3
-        ''', new_stamps, completed, enrollment['id'])
-        
-        await conn.execute('''
-            INSERT INTO stamp_requests (campaign_id, customer_id, merchant_id, enrollment_id, status, created_at, processed_at)
-            VALUES ($1, $2, $3, $4, 'approved', NOW(), NOW())
-        ''', campaign_id, customer_id, user_id, enrollment['id'])
-    
-    progress_bar = generate_progress_bar(new_stamps, campaign['stamps_needed'])
-    
-    if completed:
-        await query.edit_message_text(
-            f"🎉 *Stamp Added - Reward Earned!*\n\n"
-            f"{progress_bar}\n"
-            f"✅ {new_stamps}/{campaign['stamps_needed']} stamps\n\n"
-            f"Customer can now claim their reward!" + BRAND_FOOTER,
-            parse_mode="Markdown"
-        )
-        await db.queue_notification(
-            customer_id,
-            f"🎉 *REWARD EARNED!*\n\n"
-            f"You completed {campaign['name']}!\n\n"
-            f"Show your wallet to the merchant to claim your reward!" + BRAND_FOOTER
-        )
-    else:
-        remaining = campaign['stamps_needed'] - new_stamps
-        await query.edit_message_text(
-            f"✅ *Stamp Added!*\n\n"
-            f"{progress_bar}\n"
-            f"{new_stamps}/{campaign['stamps_needed']} stamps\n\n"
-            f"Just {remaining} more to go!" + BRAND_FOOTER,
-            parse_mode="Markdown"
-        )
-        await db.queue_notification(
-            customer_id,
-            f"⭐ *New Stamp Added!*\n\n"
-            f"{campaign['name']}\n"
-            f"{progress_bar}\n"
-            f"{new_stamps}/{campaign['stamps_needed']} stamps\n\n"
-            f"Collect {remaining} more for your reward!" + BRAND_FOOTER
-        )
-    return
-        
-       # Clear reward callback
-elif data.startswith("clearreward_"):
-    parts = data.split("_")
-    campaign_id = int(parts[1])
-    customer_id = int(parts[2])
-    
-    campaign = await db.get_campaign(campaign_id)
-    
-    async with db.pool.acquire() as conn:
-        await conn.execute('''
-            UPDATE enrollments 
-            SET stamps = 0, completed = FALSE, updated_at = NOW()
-            WHERE campaign_id = $1 AND customer_id = $2
-        ''', campaign_id, customer_id)
-    
-    await query.edit_message_text(
-        f"✅ *Reward Given!*\n\n"
-        f"Customer's {campaign['name']} card has been reset.\n\n"
-        f"They can start collecting stamps again!" + BRAND_FOOTER,
-        parse_mode="Markdown"
-    )
-    
-    await db.queue_notification(
-        customer_id,
-        f"🎉 *Reward Claimed!*\n\n"
-        f"You've claimed your reward from {campaign['name']}!\n\n"
-        f"Your stamps have been reset. Start collecting again! 🎯" + BRAND_FOOTER
-    )
-    return
         
         # Unknown callback
         else:
@@ -1431,14 +1412,13 @@ elif data.startswith("clearreward_"):
         
         try:
             await query.message.reply_text(
-                "⚠️ Something went wrong. Please try using the command directly:\n\n"
+                "⚠️ Something went wrong. Please try:\n\n"
                 "• /wallet - View cards\n"
                 "• /start - Main menu\n"
                 "• /help - Get help" + BRAND_FOOTER
             )
         except:
             pass
-
 # ==================== BACKGROUND TASKS ====================
 
 async def send_notifications(app):
@@ -1649,6 +1629,7 @@ if __name__ == "__main__":
         print(f"\n❌ Fatal error: {e}")
         import traceback
         traceback.print_exc()
+
 
 
 
