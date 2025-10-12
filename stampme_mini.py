@@ -1286,8 +1286,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Unknown callback
         else:
-        # Unknown callback
-        else:
             print(f"Unknown callback: {data}")
             await query.answer("Unknown action")
             return
@@ -1517,6 +1515,7 @@ if __name__ == "__main__":
         print(f"\n❌ Fatal error: {e}")
         import traceback
         traceback.print_exc()
+
 
 
 
