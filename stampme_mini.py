@@ -710,42 +710,92 @@ async def show_rewards(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not ready_rewards:
         await update.message.reply_text(
             "🎁 *No Rewards Ready Yet*\n\n"
-            "Keep collecting stamps! 💪 " + BRAND_FOOTER,
-parse_mode="Markdown"
-)
-return 
-await update.message.reply_text(
-    f"🎉 *{len(ready_rewards)} Rewards Ready!*\n\n"
-    "Show these at the store to claim 👇" + BRAND_FOOTER,
-    parse_mode="Markdown"
-)
-
-for reward in ready_rewards:
-    keyboard = [[InlineKeyboardButton("📍 Store Location", callback_data=f"store_loc_{reward['id']}")]]
+            "Keep collecting stamps! 💪" + BRAND_FOOTER,
+            parse_mode="Markdown"
+        )
+        return
     
     await update.message.reply_text(
-        f"🎁 *{reward['name']}*\n"
-        f"🏪 {reward['merchant_name']}\n\n"
-        f"█████████████████████ 100%\n\n"
-        f"✅ REWARD READY TO CLAIM!" + BRAND_FOOTER,
+        f"🎉 *{len(ready_rewards)} Rewards Ready!*\n\n"
+        "Show these at the store to claim 👇" + BRAND_FOOTER,
+        parse_mode="Markdown"
+    )
+    
+    for reward in ready_rewards:
+        keyboard = [[InlineKeyboardButton("📍 Store Location", callback_data=f"store_loc_{reward['id']}")]]
+        
+        await update.message.reply_text(
+            f"🎁 *{reward['name']}*\n"
+            f"🏪 {reward['merchant_name']}\n\n"
+            f"█████████████████████ 100%\n\n"
+            f"✅ REWARD READY TO CLAIM!" + BRAND_FOOTER,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+
+async def settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Settings menu"""
+    user_id = update.effective_user.id
+    
+    keyboard = [
+        [InlineKeyboardButton("🔔 Notifications", callback_data="toggle_notif")],
+        [InlineKeyboardButton("🔒 Privacy & Data", callback_data="privacy_settings")],
+        [InlineKeyboardButton("📥 Download My Data", callback_data="download_data")]
+    ]
+    
+    await update.message.reply_text(
+        "⚙️ *Settings*\n\n"
+        "Manage your preferences 👇" + BRAND_FOOTER,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
-    )   
-async def settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-"""Settings menu"""
-user_id = update.effective_user.id
-keyboard = [
-    [InlineKeyboardButton("🔔 Notifications", callback_data="toggle_notif")],
-    [InlineKeyboardButton("🔒 Privacy & Data", callback_data="privacy_settings")],
-    [InlineKeyboardButton("📥 Download My Data", callback_data="download_data")]
-]
+    )
 
-await update.message.reply_text(
-    "⚙️ *Settings*\n\n"
-    "Manage your preferences 👇" + BRAND_FOOTER,
-    reply_markup=InlineKeyboardMarkup(keyboard),
-    parse_mode="Markdown"
-)
+async def dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Merchant dashboard"""
+    user_id = update.effective_user.id
+    
+    if not await db.is_merchant_approved(user_id):
+        await update.message.reply_text(
+            "⚠️ Merchant approval required" + BRAND_FOOTER,
+            reply_markup=get_merchant_keyboard()
+        )
+        return
+    
+    campaigns = await db.get_merchant_campaigns(user_id)
+    pending_count = await db.get_pending_count(user_id)
+    today_stats = await db.get_daily_stats(user_id)
+    
+    total_customers = sum(c.get('total_joins', 0) for c in campaigns)
+    total_completions = sum(c.get('total_completions', 0) for c in campaigns)
+    
+    message = (
+        f"📊 *Your Dashboard*\n\n"
+        f"📅 *Today:*\n"
+        f"• Visits: {today_stats['visits']}\n"
+        f"• Stamps: {today_stats['stamps_given']}\n"
+        f"• Rewards: {today_stats['rewards_claimed']}\n\n"
+        f"📈 *Overall:*\n"
+        f"• Programs: {len(campaigns)}\n"
+        f"• Customers: {total_customers}\n"
+        f"• Completed: {total_completions}\n"
+    )
+    
+    if pending_count > 0:
+        message += f"\n⚠️ *{pending_count} pending requests!*"
+    
+    keyboard = [
+        [InlineKeyboardButton(f"⏳ Pending ({pending_count})", callback_data="show_pending")],
+        [InlineKeyboardButton("📋 My Programs", callback_data="my_campaigns")]
+    ]
+    
+    if pending_count > 0:
+        keyboard.insert(0, [InlineKeyboardButton(f"✅ Approve All", callback_data="approve_all")])
+    
+    await update.message.reply_text(
+        message + BRAND_FOOTER,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
 async def dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
 """Merchant dashboard"""
 user_id = update.effective_user.id
@@ -1894,3 +1944,4 @@ import traceback
 traceback.print_exc()
                 
             
+
