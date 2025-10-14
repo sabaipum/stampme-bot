@@ -600,19 +600,41 @@ async def main():
     """Start bot"""
     print("🚀 Starting StampMe Bot...")
     
-    for attempt in range(3):
+    # ENHANCED CONFLICT RESOLUTION
+    print("🔄 Clearing any existing bot instances...")
+    
+    for attempt in range(5):  # Try 5 times instead of 3
         try:
             temp_app = ApplicationBuilder().token(TOKEN).build()
             await temp_app.initialize()
-            await temp_app.bot.delete_webhook(drop_pending_updates=True)
-            print(f"  ✓ Webhook cleared")
+            
+            # Delete webhook multiple times to be sure
+            for i in range(3):
+                result = await temp_app.bot.delete_webhook(drop_pending_updates=True)
+                print(f"    ✓ Webhook clear attempt {i+1}: {result}")
+                await asyncio.sleep(2)
+            
             await temp_app.shutdown()
-            await asyncio.sleep(3)
+            print(f"  ✓ Attempt {attempt + 1}: All clear")
+            
+            # Wait longer for Telegram to process
+            await asyncio.sleep(5)
             break
+            
         except Exception as e:
             print(f"  ⚠️ Attempt {attempt + 1} failed: {e}")
-            if attempt < 2:
-                await asyncio.sleep(2)
+            if attempt < 4:
+                wait_time = (attempt + 1) * 3  # Progressive backoff: 3s, 6s, 9s, 12s, 15s
+                print(f"  ⏳ Waiting {wait_time} seconds before retry...")
+                await asyncio.sleep(wait_time)
+            else:
+                print("\n❌ CRITICAL: Could not clear old instances after 5 attempts")
+                print("Manual intervention required:")
+                print("1. Go to Render Dashboard")
+                print("2. Suspend the service")
+                print("3. Wait 1 minute")
+                print("4. Resume the service")
+                return
     
     try:
         await db.connect()
@@ -674,3 +696,4 @@ if __name__ == "__main__":
         print(f"\n❌ Fatal error: {e}")
         import traceback
         traceback.print_exc()
+
