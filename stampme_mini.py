@@ -796,79 +796,36 @@ async def dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
-async def dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
-"""Merchant dashboard"""
-user_id = update.effective_user.id
-if not await db.is_merchant_approved(user_id):
-    await update.message.reply_text(
-        "⚠️ Merchant approval required" + BRAND_FOOTER,
-        reply_markup=get_merchant_keyboard()
-    )
-    return
 
-campaigns = await db.get_merchant_campaigns(user_id)
-pending_count = await db.get_pending_count(user_id)
-today_stats = await db.get_daily_stats(user_id)
-
-total_customers = sum(c.get('total_joins', 0) for c in campaigns)
-total_completions = sum(c.get('total_completions', 0) for c in campaigns)
-
-message = (
-    f"📊 *Your Dashboard*\n\n"
-    f"📅 *Today:*\n"
-    f"• Visits: {today_stats['visits']}\n"
-    f"• Stamps: {today_stats['stamps_given']}\n"
-    f"• Rewards: {today_stats['rewards_claimed']}\n\n"
-    f"📈 *Overall:*\n"
-    f"• Programs: {len(campaigns)}\n"
-    f"• Customers: {total_customers}\n"
-    f"• Completed: {total_completions}\n"
-)
-
-if pending_count > 0:
-    message += f"\n⚠️ *{pending_count} pending requests!*"
-
-keyboard = [
-    [InlineKeyboardButton(f"⏳ Pending ({pending_count})", callback_data="show_pending")],
-    [InlineKeyboardButton("📋 My Programs", callback_data="my_campaigns")]
-]
-
-if pending_count > 0:
-    keyboard.insert(0, [InlineKeyboardButton(f"✅ Approve All", callback_data="approve_all")])
-
-await update.message.reply_text(
-    message + BRAND_FOOTER,
-    reply_markup=InlineKeyboardMarkup(keyboard),
-    parse_mode="Markdown"
-)
 async def pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
-"""Show pending requests"""
-user_id = update.effective_user.id
-requests = await db.get_pending_requests(user_id)
-if not requests:
+    """Show pending requests"""
+    user_id = update.effective_user.id
+    requests = await db.get_pending_requests(user_id)
+    
+    if not requests:
+        await update.message.reply_text(
+            "📭 *No Pending Requests*\n\n"
+            "You're all caught up!" + BRAND_FOOTER,
+            parse_mode="Markdown"
+        )
+        return
+    
+    keyboard = []
+    for req in requests[:15]:
+        customer_name = req['username'] or req['first_name']
+        progress = f"{req['current_stamps']}/{req['stamps_needed']}"
+        button_text = f"{customer_name} - {req['campaign_name']} ({progress})"
+        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"viewreq_{req['id']}")])
+    
+    if len(requests) > 1:
+        keyboard.append([InlineKeyboardButton(f"✅ Approve All ({len(requests)})", callback_data="approve_all")])
+    
     await update.message.reply_text(
-        "📭 *No Pending Requests*\n\n"
-        "You're all caught up!" + BRAND_FOOTER,
+        f"⏳ *Pending Requests ({len(requests)})*\n\n"
+        f"Tap to review 👇" + BRAND_FOOTER,
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
-    return
-
-keyboard = []
-for req in requests[:15]:
-    customer_name = req['username'] or req['first_name']
-    progress = f"{req['current_stamps']}/{req['stamps_needed']}"
-    button_text = f"{customer_name} - {req['campaign_name']} ({progress})"
-    keyboard.append([InlineKeyboardButton(button_text, callback_data=f"viewreq_{req['id']}")])
-
-if len(requests) > 1:
-    keyboard.append([InlineKeyboardButton(f"✅ Approve All ({len(requests)})", callback_data="approve_all")])
-
-await update.message.reply_text(
-    f"⏳ *Pending Requests ({len(requests)})*\n\n"
-    f"Tap to review 👇" + BRAND_FOOTER,
-    reply_markup=InlineKeyboardMarkup(keyboard),
-    parse_mode="Markdown"
-)
 async def scan_customer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 """Scan customer menu"""
 user_id = update.effective_user.id
@@ -1944,4 +1901,5 @@ import traceback
 traceback.print_exc()
                 
             
+
 
