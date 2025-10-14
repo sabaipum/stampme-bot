@@ -347,3 +347,62 @@ class StampMeDatabase:
             if set_clauses:
                 query = f"UPDATE merchant_settings SET {', '.join(set_clauses)} WHERE merchant_id = $1"
                 await conn.execute(query, merchant_id, *values)
+
+# Add these methods to your existing StampMeDatabase class
+    
+    async def mark_user_onboarded(self, user_id: int):
+        """Mark user as onboarded"""
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET onboarded = TRUE, updated_at = NOW() WHERE id = $1",
+                user_id
+            )
+    
+    async def get_customer_enrollments(self, customer_id: int):
+        """Get all customer enrollments with campaign details"""
+        async with self.pool.acquire() as conn:
+            return await conn.fetch("""
+                SELECT 
+                    e.id as enrollment_id,
+                    e.stamps,
+                    e.completed,
+                    e.created_at,
+                    c.id as campaign_id,
+                    c.name,
+                    c.stamps_needed,
+                    c.category,
+                    c.reward_description,
+                    u.first_name as merchant_name
+                FROM enrollments e
+                JOIN campaigns c ON e.campaign_id = c.id
+                JOIN users u ON c.merchant_id = u.id
+                WHERE e.customer_id = $1
+                ORDER BY e.completed DESC, e.updated_at DESC
+            """, customer_id)
+    
+    async def get_daily_stats(self, merchant_id: int, date=None):
+        """Get merchant daily statistics"""
+        from datetime import datetime
+        if date is None:
+            date = datetime.now().date()
+        
+        async with self.pool.acquire() as conn:
+            stats = await conn.fetchrow("""
+                SELECT 
+                    COUNT(DISTINCT sr.customer_id) as visits,
+                    COUNT(*) FILTER (WHERE sr.status = 'approved') as stamps_given,
+                    COUNT(DISTINCT rc.id) as rewards_claimed
+                FROM stamp_requests sr
+                JOIN campaigns c ON sr.campaign_id = c.id
+                LEFT JOIN reward_claims rc ON c.id = rc.campaign_id 
+                    AND rc.merchant_id = $1 
+                    AND DATE(rc.claimed_at) = $2
+                WHERE c.merchant_id = $1 
+                AND DATE(sr.created_at) = $2
+            """, merchant_id, date)
+            
+            return {
+                'visits': stats['visits'] or 0,
+                'stamps_given': stats['stamps_given'] or 0,
+                'rewards_claimed': stats['rewards_claimed'] or 0
+            }
