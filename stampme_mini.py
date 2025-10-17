@@ -82,7 +82,7 @@ def get_customer_keyboard():
         [KeyboardButton("🆔 Show My ID"), KeyboardButton("🎁 My Rewards")],
         [KeyboardButton("⚙️ Settings"), KeyboardButton("❓ Help")]
     ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, persistent=True)
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)  # ← CHANGE HERE
 
 def get_merchant_keyboard():
     """Main keyboard for merchants"""
@@ -91,7 +91,7 @@ def get_merchant_keyboard():
         [KeyboardButton("👥 Scan Customer"), KeyboardButton("📋 My Programs")],
         [KeyboardButton("➕ New Program"), KeyboardButton("⚙️ Settings")]
     ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, persistent=True)
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)  # ← CHANGE HERE
 
 # ==================== UTILITY FUNCTIONS ====================
 
@@ -817,5 +817,6 @@ if __name__ == "__main__":
         print(f"\n❌ Fatal error: {e}")
         import traceback
         traceback.print_exc()
+
 
 
