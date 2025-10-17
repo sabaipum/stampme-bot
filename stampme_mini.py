@@ -350,6 +350,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await db.create_or_update_user(user_id, username, first_name)
     user = await db.get_user(user_id)
     
+    # Handle deep links (join campaign)
     if context.args:
         arg = context.args[0]
         
@@ -360,8 +361,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 if not campaign or not campaign['active']:
                     await update.message.reply_text(
-                        "😕 Program not available" + BRAND_FOOTER,
-                        reply_markup=get_customer_keyboard()
+                        "😕 This program is no longer available" + BRAND_FOOTER,
+                        reply_markup=get_customer_keyboard(),
+                        parse_mode="Markdown"
                     )
                     return
                 
@@ -369,45 +371,164 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 if not enrollment:
                     await db.enroll_customer(campaign_id, user_id)
+                    
+                    keyboard = [[InlineKeyboardButton("⭐ Request First Stamp", callback_data=f"request_{campaign_id}")]]
+                    
                     await update.message.reply_text(
-                        f"🎉 *Welcome!*\n\nYou joined: *{campaign['name']}*\n\n"
-                        f"Collect {campaign['stamps_needed']} stamps!" + BRAND_FOOTER,
-                        reply_markup=get_customer_keyboard(),
+                        f"🎉 *Welcome!*\n\n"
+                        f"You joined: *{campaign['name']}*\n\n"
+                        f"🎯 Collect {campaign['stamps_needed']} stamps for rewards!\n\n"
+                        f"Use the menu below 👇" + BRAND_FOOTER,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode="Markdown"
                     )
+                    
+                    # IMPORTANT: Send the keyboard menu
+                    await update.message.reply_text(
+                        "Quick access:",
+                        reply_markup=get_customer_keyboard()
+                    )
+                    
                     if not user.get('onboarded'):
                         await db.mark_user_onboarded(user_id)
                 else:
+                    progress_bar = generate_progress_bar(enrollment['stamps'], campaign['stamps_needed'], 20)
+                    
                     await update.message.reply_text(
-                        f"👋 Welcome back!" + BRAND_FOOTER,
-                        reply_markup=get_customer_keyboard()
+                        f"👋 Welcome back!\n\n"
+                        f"*{campaign['name']}*\n"
+                        f"{progress_bar}\n\n"
+                        f"{enrollment['stamps']}/{campaign['stamps_needed']} stamps" + BRAND_FOOTER,
+                        reply_markup=get_customer_keyboard(),
+                        parse_mode="Markdown"
                     )
                 return
             except Exception as e:
                 logger.error(f"Error: {e}")
                 return
     
-    if user and user['user_type'] == 'merchant' and user['merchant_approved']:
-        await update.message.reply_text(
-            f"👋 Welcome back, {first_name}!" + BRAND_FOOTER,
-            reply_markup=get_merchant_keyboard()
-        )
+    # Regular start - CHECK USER TYPE
+    if user and user['user_type'] == 'merchant':
+        if user.get('merchant_approved', False):
+            pending_count = await db.get_pending_count(user_id)
+            
+            message = f"👋 Welcome back, {first_name}!\n\n"
+            if pending_count > 0:
+                message += f"⚠️ {pending_count} pending requests\n\n"
+            message += "Use the menu below 👇"
+            
+            # SEND MERCHANT KEYBOARD
+            await update.message.reply_text(
+                message + BRAND_FOOTER,
+                reply_markup=get_merchant_keyboard(),
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text(
+                "🏪 *Merchant Application Pending*\n\n"
+                "Your account is being reviewed.\n"
+                "You'll be notified within 24 hours!" + BRAND_FOOTER,
+                parse_mode="Markdown"
+            )
     else:
-        await update.message.reply_text(
-            f"👋 Hi {first_name}!\n\nWelcome to *StampMe* 💙" + BRAND_FOOTER,
-            reply_markup=get_customer_keyboard(),
-            parse_mode="Markdown"
-        )
-        if not user.get('onboarded'):
+        # CUSTOMER START
+        is_new = not user.get('onboarded', False)
+        
+        if is_new:
+            # New user
+            keyboard = [
+                [InlineKeyboardButton("🎯 Quick Tutorial", callback_data="start_tutorial")],
+                [InlineKeyboardButton("🔍 Find Stores", callback_data="find_stores")]
+            ]
+            
+            await update.message.reply_text(
+                f"👋 Hi {first_name}!\n\n"
+                f"Welcome to *StampMe* 💙\n\n"
+                f"Your smart digital loyalty card!\n\n"
+                f"✨ *Features:*\n"
+                f"• Collect stamps at stores\n"
+                f"• Track progress in real-time\n"
+                f"• Earn rewards automatically\n"
+                f"• No more paper cards!\n\n"
+                f"Use the menu below to get started 👇" + BRAND_FOOTER,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown"
+            )
+            
+            # CRITICAL: Send the visual keyboard
+            await update.message.reply_text(
+                "Tap these buttons anytime:",
+                reply_markup=get_customer_keyboard()
+            )
+            
             await db.mark_user_onboarded(user_id)
+        else:
+            # Returning customer
+            try:
+                enrollments = await db.get_customer_enrollments(user_id)
+                completed = sum(1 for e in enrollments if e.get('completed', False))
+                
+                message = f"👋 Welcome back, {first_name}!\n\n"
+                if enrollments:
+                    message += f"📊 *Quick Stats:*\n"
+                    message += f"• {len(enrollments)} active cards\n"
+                    if completed > 0:
+                        message += f"• 🎁 {completed} rewards ready!\n"
+                    message += "\n"
+                
+                message += "Use the menu below 👇"
+                
+                await update.message.reply_text(
+                    message + BRAND_FOOTER,
+                    reply_markup=get_customer_keyboard(),
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                logger.error(f"Error getting enrollments: {e}")
+                # Fallback if error
+                await update.message.reply_text(
+                    f"👋 Welcome back, {first_name}!\n\n"
+                    f"Use the menu below 👇" + BRAND_FOOTER,
+                    reply_markup=get_customer_keyboard(),
+                    parse_mode="Markdown"
+                )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show help"""
+    user = await db.get_user(update.effective_user.id)
+    
+    if user and user['user_type'] == 'merchant' and user.get('merchant_approved', False):
+        keyboard = [
+            [InlineKeyboardButton("📖 Getting Started", callback_data="help_merchant_start")],
+            [InlineKeyboardButton("⭐ Managing Stamps", callback_data="help_stamps")],
+            [InlineKeyboardButton("💡 Best Practices", callback_data="help_tips")]
+        ]
+        
+        message = (
+            "❓ *Merchant Help*\n\n"
+            "Choose a topic or use the menu buttons below 👇"
+        )
+    else:
+        keyboard = [
+            [InlineKeyboardButton("🎯 How to Collect Stamps", callback_data="help_customer_stamps")],
+            [InlineKeyboardButton("🎁 How to Claim Rewards", callback_data="help_rewards")],
+            [InlineKeyboardButton("🆔 Using Your ID", callback_data="help_id")]
+        ]
+        
+        message = (
+            "❓ *Help Center*\n\n"
+            "*Quick Guide:*\n"
+            "• Tap 💳 My Wallet to see your cards\n"
+            "• Tap 🆔 Show My ID at checkout\n"
+            "• Tap 📍 Find Stores to discover shops\n\n"
+            "Use the menu buttons below for quick access!"
+        )
+    
     await update.message.reply_text(
-        "❓ *Help Center*\n\nUse the menu buttons below!" + BRAND_FOOTER,
+        message + BRAND_FOOTER,
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
-
 async def wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show wallet"""
     user_id = update.effective_user.id
@@ -696,4 +817,5 @@ if __name__ == "__main__":
         print(f"\n❌ Fatal error: {e}")
         import traceback
         traceback.print_exc()
+
 
