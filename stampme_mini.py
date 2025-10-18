@@ -1463,7 +1463,8 @@ async def pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error getting pending requests: {e}")
         await update.message.reply_text(
             "❌ Error loading pending requests." + BRAND_FOOTER,
-            parse_mode="
+            parse_mode="Markdown"
+        )
 
 # ==================== CALLBACK HANDLERS ====================
 
@@ -1930,4 +1931,5 @@ if __name__ == "__main__":
         print(f"\n❌ Fatal error: {e}")
         import traceback
         traceback.print_exc()
+
 
