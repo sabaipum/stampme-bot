@@ -945,4 +945,4 @@ if __name__ == "__main__":
         print(f"\n❌ Fatal error: {e}")
         import traceback
         traceback.print_exc()
-nter*\n\n*Quick Guide
+
